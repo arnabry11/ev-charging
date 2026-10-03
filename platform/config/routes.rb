@@ -19,7 +19,7 @@ Rails.application.routes.draw do
   root "admin/sessions#index"
   namespace :admin do
     resources :chargers, only: :index
-    resources :sessions, only: :index
+    resources :sessions, only: %i[index show]
   end
 
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
