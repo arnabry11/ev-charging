@@ -12,6 +12,7 @@ Rails.application.routes.draw do
   post "internal/v1/drivers" => "internal/v1/drivers#create"
   get "internal/v1/tariff" => "internal/v1/tariffs#show"
   put "internal/v1/tariff" => "internal/v1/tariffs#update"
+  get "internal/v1/prepaid-sessions/:id/invoice" => "internal/v1/invoices#show"
   get "internal/v1/prepaid-sessions/:id" => "internal/v1/prepaid_sessions#show"
   post "internal/v1/prepaid-sessions" => "internal/v1/prepaid_sessions#create"
 

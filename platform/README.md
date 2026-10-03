@@ -17,4 +17,4 @@ Charger ids are stored uppercase. Driver phones are stored as 10-digit Indian mo
 
 `GET` and `PUT /internal/v1/tariff` keep one active flat tariff. Prices are integer paise: the seeded tariff is 1800 paise per kWh plus a 1000 paise session fee. Development Compose loads `db/seeds.rb` after preparing the database.
 
-`POST /internal/v1/prepaid-sessions` charges a credit card in-process. A 16-digit number ending in `0002` is declined. The platform stores the last four digits only. An approved charge snapshots the tariff and stores the energy limit that amount can buy.
+`POST /internal/v1/prepaid-sessions` charges a credit card in-process. A 16-digit number ending in `0002` is declined. The platform stores the last four digits only. An approved charge snapshots the tariff and stores the energy limit that amount can buy. When the session stops, Sidekiq writes one GST invoice and refunds the unused paise. `GET /internal/v1/prepaid-sessions/:id/invoice` is the HTML receipt.

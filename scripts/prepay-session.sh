@@ -26,3 +26,27 @@ if session["state"] != "stopped" or delivered != 240:
     raise SystemExit(f"prepaid session did not stop at 240 Wh: state={session['state']} delivered={delivered}")
 print(f"Stopped after card prepay: delivered_wh={delivered} card_last4={session['card_last4']}")
 PY
+
+invoice=""
+for _ in {1..20}; do
+  if invoice="$(curl --fail --silent --show-error "http://127.0.0.1:${PLATFORM_HTTP_PORT:-3000}/internal/v1/prepaid-sessions/$session_id/invoice")"; then
+    break
+  fi
+  invoice=""
+  sleep 1
+done
+
+python3 - "$invoice" <<'PY'
+import sys
+html = sys.argv[1]
+def amount(name):
+    marker = f'data-amount="{name}">'
+    start = html.index(marker) + len(marker)
+    return int(html[start:html.index("<", start)])
+
+total = amount("total")
+refund = amount("refund")
+if total + refund != 1432 or total != 1432 or refund != 0:
+    raise SystemExit(f"invoice total={total} refund={refund}, want 1432 and 0")
+print(f"Invoice settled: total_paise={total} refund_paise={refund}")
+PY

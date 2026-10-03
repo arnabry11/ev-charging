@@ -23,7 +23,15 @@ class PrepaidSession < ApplicationRecord
       limit_energy_wh:,
       limit_duration_s:,
       meter_start_wh:,
-      meter_stop_wh:
+      meter_stop_wh:,
+      invoice: invoice && {
+        total_paise: invoice.total_paise,
+        taxable_paise: invoice.taxable_paise,
+        cgst_paise: invoice.cgst_paise,
+        sgst_paise: invoice.sgst_paise,
+        gst_rate_percent: invoice.gst_rate_percent,
+        refund_paise: refund&.amount_paise
+      }
     }
   end
 end
