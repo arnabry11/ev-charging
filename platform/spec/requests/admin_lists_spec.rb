@@ -26,7 +26,9 @@ RSpec.describe "Admin lists", type: :request do
     expect(response).to have_http_status(:ok)
     expect(response.body).to include("Sessions")
     expect(response.body).to include("9876543210")
-    expect(response.body).to include("1432")
+    expect(response.body).to include("₹14.32")
+    expect(response.body).not_to include("1432")
+    expect(response.body).not_to include("paise")
 
     get "/admin/chargers"
     expect(response).to have_http_status(:ok)

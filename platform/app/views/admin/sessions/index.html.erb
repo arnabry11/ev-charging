@@ -9,9 +9,9 @@
         <th>State</th>
         <th>Charger</th>
         <th>Phone</th>
-        <th>Prepaid paise</th>
-        <th>Invoice paise</th>
-        <th>Refund paise</th>
+        <th class="money">Prepaid</th>
+        <th class="money">Invoice</th>
+        <th class="money">Refund</th>
       </tr>
     </thead>
     <tbody>
@@ -20,9 +20,9 @@
           <td><%= link_to session.state, admin_session_path(session) %></td>
           <td><%= session.charger.ocpp_id %></td>
           <td><%= session.driver.phone %></td>
-          <td><%= session.prepaid_paise %></td>
-          <td><%= session.invoice&.total_paise %></td>
-          <td><%= session.refund&.amount_paise %></td>
+          <td class="money"><%= paise_to_rupees(session.prepaid_paise) %></td>
+          <td class="money"><%= paise_to_rupees(session.invoice&.total_paise) %></td>
+          <td class="money"><%= paise_to_rupees(session.refund&.amount_paise) %></td>
         </tr>
       <% end %>
     </tbody>

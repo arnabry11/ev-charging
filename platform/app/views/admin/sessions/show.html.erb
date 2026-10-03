@@ -5,7 +5,7 @@
 <section>
   <h2>Payment</h2>
   <p>Card ending <%= @session.card_last4 %></p>
-  <p>Prepaid <%= @session.prepaid_paise %> paise</p>
+  <p>Prepaid <%= paise_to_rupees(@session.prepaid_paise) %></p>
   <p>Phone <%= @session.driver.phone %></p>
   <p>Charger <%= @session.charger.ocpp_id %></p>
 </section>
@@ -13,11 +13,11 @@
 <section>
   <h2>Invoice</h2>
   <% if @session.invoice %>
-    <p>Energy <%= @session.invoice.energy_wh %> Wh</p>
-    <p>Taxable <%= @session.invoice.taxable_paise %> paise</p>
-    <p>CGST <%= @session.invoice.cgst_paise %> paise</p>
-    <p>SGST <%= @session.invoice.sgst_paise %> paise</p>
-    <p>Total <%= @session.invoice.total_paise %> paise</p>
+    <p>Energy <%= wh_to_kwh(@session.invoice.energy_wh) %></p>
+    <p>Taxable <%= paise_to_rupees(@session.invoice.taxable_paise) %></p>
+    <p>CGST <%= paise_to_rupees(@session.invoice.cgst_paise) %></p>
+    <p>SGST <%= paise_to_rupees(@session.invoice.sgst_paise) %></p>
+    <p>Total <%= paise_to_rupees(@session.invoice.total_paise) %></p>
     <p><%= link_to "Receipt", "/internal/v1/prepaid-sessions/#{@session.id}/invoice" %></p>
   <% else %>
     <p>No invoice yet.</p>
@@ -27,7 +27,7 @@
 <section>
   <h2>Refund</h2>
   <% if @session.refund %>
-    <p><%= @session.refund.amount_paise %> paise</p>
+    <p>Refund <%= paise_to_rupees(@session.refund.amount_paise) %></p>
   <% else %>
     <p>No refund yet.</p>
   <% end %>
