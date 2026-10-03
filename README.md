@@ -39,7 +39,7 @@ Later, `docker compose --profile demo up` will run a full prepaid session on fak
 
 **Go owns live device state. Rails owns everything involving money.**
 
-The gateway never calculates prices. It only enforces numeric limits (`max_energy_wh`, `max_duration_s`) that the platform computed from the prepaid amount. Final price always comes from `meter_start_wh` and `meter_stop_wh` on `session.stopped`, never from summing live meter batches.
+The gateway never calculates prices. It only enforces numeric limits (`max_energy_wh`, `max_duration_s`) that the platform computed from the prepaid amount. Final price always comes from `meter_start_wh` and `meter_stop_wh` on `session.stopped`, never from summing live meter batches. The platform's seeded flat tariff is 1800 paise per kWh plus a 1000 paise session fee.
 
 ## Architecture
 
