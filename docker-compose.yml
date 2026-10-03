@@ -3,8 +3,12 @@ services:
     build: ./gateway
     environment:
       PORT: "8080"
+      OCPP_PORT: "9000"
+      HEARTBEAT_INTERVAL_S: "10"
+      CHARGER_AUTH: ${CHARGER_AUTH:-CHG-MUM-0001:demo-password}
     ports:
       - "${GATEWAY_HTTP_PORT:-8080}:8080"
+      - "${GATEWAY_OCPP_PORT:-9000}:9000"
     depends_on:
       gateway-db:
         condition: service_healthy
