@@ -21,8 +21,11 @@ type Querier interface {
 	GetSessionByTransaction(ctx context.Context, arg GetSessionByTransactionParams) (Session, error)
 	GetSessionForStart(ctx context.Context, arg GetSessionForStartParams) (Session, error)
 	InsertCommand(ctx context.Context, arg InsertCommandParams) (int64, error)
+	ListRecoverableSessions(ctx context.Context) ([]Session, error)
 	MarkCommandDispatching(ctx context.Context, arg MarkCommandDispatchingParams) (CommandInbox, error)
 	MarkSessionStopping(ctx context.Context, arg MarkSessionStoppingParams) (Session, error)
+	RecordMeterValue(ctx context.Context, arg RecordMeterValueParams) (Session, error)
+	RestoreLimitSessionActive(ctx context.Context, arg RestoreLimitSessionActiveParams) (int64, error)
 	RestoreSessionActive(ctx context.Context, sessionRef pgtype.UUID) (int64, error)
 	StopSession(ctx context.Context, arg StopSessionParams) (Session, error)
 }

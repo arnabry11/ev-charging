@@ -46,6 +46,10 @@ func main() {
 		Logger:             logger,
 	})
 	sessions := session.New(store.New(pool), reg, ocpp)
+	if err := sessions.Recover(ctx); err != nil {
+		logger.Error("recover sessions", "err", err)
+		os.Exit(1)
+	}
 	ocpp.SetSessionHandler(sessions)
 	go ocpp.Start()
 

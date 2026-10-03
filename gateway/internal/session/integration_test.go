@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/arnabry11/ev-charging/gateway/internal/store"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -60,8 +62,14 @@ func TestTransactionCallbacksAreConcurrentSafe(t *testing.T) {
 		}
 	}
 
+	if err := engine.Meter(ctx, "CHG-1", transactionIDs[0], 2_500, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Finish(ctx, "CHG-1", transactionIDs[0], 2_499, time.Now(), "Remote"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("regressing stop meter error = %v, want no rows", err)
+	}
 	runOperations(t, 12, func() (struct{}, error) {
-		return struct{}{}, engine.Finish(ctx, "CHG-1", transactionIDs[0], 2_000, time.Now(), "Remote")
+		return struct{}{}, engine.Finish(ctx, "CHG-1", transactionIDs[0], 2_500, time.Now(), "Remote")
 	})
 }
 

@@ -324,6 +324,159 @@ func TestFinishIsIdempotentAndScopedToCharger(t *testing.T) {
 	}
 }
 
+func TestLimitReached(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2026, time.October, 3, 8, 0, 0, 0, time.UTC)
+	current := store.Session{
+		LimitEnergyWh:  1_000,
+		LimitDurationS: 300,
+		MeterStartWh:   pgtype.Int8{Int64: 10_000, Valid: true},
+		StartedAt:      pgtype.Timestamptz{Time: startedAt, Valid: true},
+	}
+
+	if got := limitReached(current, 10_999, startedAt.Add(299*time.Second)); got != "" {
+		t.Fatalf("below limits = %q", got)
+	}
+	if got := limitReached(current, 11_000, startedAt.Add(time.Second)); got != "energy_limit" {
+		t.Fatalf("energy limit = %q", got)
+	}
+	if got := limitReached(current, 10_500, startedAt.Add(300*time.Second)); got != "duration_limit" {
+		t.Fatalf("duration limit = %q", got)
+	}
+}
+
+func TestMeterAtEnergyLimitRequestsRemoteStop(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	sessionRef := uuid.New()
+	startedAt := time.Now().Add(-time.Minute)
+	repo.sessions[sessionRef] = store.Session{
+		SessionRef:        uuidType(sessionRef),
+		ChargerID:         "CHG-1",
+		State:             StateActive,
+		OcppTransactionID: pgtype.Int4{Int32: 42, Valid: true},
+		LimitEnergyWh:     1_000,
+		LimitDurationS:    3_600,
+		MeterStartWh:      pgtype.Int8{Int64: 10_000, Valid: true},
+		LastEnergyWh:      pgtype.Int8{Int64: 10_000, Valid: true},
+		StartedAt:         pgtype.Timestamptz{Time: startedAt, Valid: true},
+	}
+	stopSignal := make(chan struct{}, 1)
+	commands := &fakeCommander{stopAccepted: true, stopSignal: stopSignal}
+	engine := New(repo, registry.New(), commands)
+
+	if err := engine.Meter(context.Background(), "CHG-1", 42, 11_000, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-stopSignal:
+	case <-time.After(time.Second):
+		t.Fatal("remote stop not requested")
+	}
+	got := repo.sessions[sessionRef]
+	if got.State != StateStopping || got.StopSource.String != "energy_limit" {
+		t.Fatalf("session = %+v", got)
+	}
+}
+
+func TestDurationTimerRequestsRemoteStop(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	sessionRef := uuid.New()
+	startedAt := time.Now()
+	repo.sessions[sessionRef] = store.Session{
+		SessionRef:        uuidType(sessionRef),
+		ChargerID:         "CHG-1",
+		State:             StateActive,
+		OcppTransactionID: pgtype.Int4{Int32: 42, Valid: true},
+		LimitDurationS:    1,
+		StartedAt:         pgtype.Timestamptz{Time: startedAt, Valid: true},
+	}
+	trigger := make(chan time.Time, 1)
+	stopSignal := make(chan struct{}, 1)
+	engine := New(repo, registry.New(), &fakeCommander{stopAccepted: true, stopSignal: stopSignal})
+	engine.now = func() time.Time { return startedAt }
+	engine.after = func(time.Duration) <-chan time.Time { return trigger }
+
+	engine.scheduleDuration(repo.sessions[sessionRef])
+	trigger <- time.Now()
+	select {
+	case <-stopSignal:
+	case <-time.After(time.Second):
+		t.Fatal("remote stop not requested")
+	}
+	if got := repo.sessions[sessionRef].StopSource.String; got != "duration_limit" {
+		t.Fatalf("stop source = %q", got)
+	}
+}
+
+func TestRecoverRequestsStopForReachedEnergyLimit(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	sessionRef := uuid.New()
+	repo.sessions[sessionRef] = store.Session{
+		SessionRef:        uuidType(sessionRef),
+		ChargerID:         "CHG-1",
+		State:             StateActive,
+		OcppTransactionID: pgtype.Int4{Int32: 42, Valid: true},
+		LimitEnergyWh:     1_000,
+		MeterStartWh:      pgtype.Int8{Int64: 10_000, Valid: true},
+		LastEnergyWh:      pgtype.Int8{Int64: 11_000, Valid: true},
+	}
+	stopSignal := make(chan struct{}, 1)
+	engine := New(repo, registry.New(), &fakeCommander{stopAccepted: true, stopSignal: stopSignal})
+
+	if err := engine.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-stopSignal:
+	case <-time.After(time.Second):
+		t.Fatal("recovered session was not stopped")
+	}
+}
+
+func TestLimitRetryDoesNotClobberManualStop(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	sessionRef := uuid.New()
+	previous := store.Session{
+		SessionRef:        uuidType(sessionRef),
+		ChargerID:         "CHG-1",
+		State:             StateStopping,
+		OcppTransactionID: pgtype.Int4{Int32: 42, Valid: true},
+		StopSource:        pgtype.Text{String: "energy_limit", Valid: true},
+	}
+	repo.sessions[sessionRef] = store.Session{
+		SessionRef:        uuidType(sessionRef),
+		ChargerID:         "CHG-1",
+		State:             StateStopping,
+		OcppTransactionID: pgtype.Int4{Int32: 42, Valid: true},
+		StopCommandID:     uuidType(uuid.New()),
+		StopSource:        pgtype.Text{String: "remote", Valid: true},
+	}
+	trigger := make(chan time.Time, 1)
+	stopSignal := make(chan struct{}, 1)
+	engine := New(repo, registry.New(), &fakeCommander{stopAccepted: true, stopSignal: stopSignal})
+	engine.after = func(time.Duration) <-chan time.Time { return trigger }
+
+	engine.retryLimitStop(previous)
+	trigger <- time.Now()
+	select {
+	case <-stopSignal:
+		t.Fatal("stale limit retry dispatched during manual stop")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if got := repo.sessions[sessionRef]; !got.StopCommandID.Valid || got.StopSource.String != "remote" {
+		t.Fatalf("session = %+v", got)
+	}
+}
+
 func TestStartCallbackWinsConfirmationRace(t *testing.T) {
 	t.Parallel()
 
@@ -425,6 +578,7 @@ type fakeCommander struct {
 	startHook      func(string, int, string)
 	stopHook       func(string, int)
 	skipBeforeSend bool
+	stopSignal     chan struct{}
 	startCalls     int
 	stopCalls      int
 }
@@ -451,6 +605,9 @@ func (f *fakeCommander) RemoteStop(_ context.Context, chargerID string, transact
 	}
 	if f.stopHook != nil {
 		f.stopHook(chargerID, transactionID)
+	}
+	if f.stopSignal != nil {
+		f.stopSignal <- struct{}{}
 	}
 	return f.stopAccepted, f.stopErr
 }
@@ -560,6 +717,16 @@ func (f *fakeRepository) GetSession(_ context.Context, id pgtype.UUID) (store.Se
 	return value, nil
 }
 
+func (f *fakeRepository) ListRecoverableSessions(context.Context) ([]store.Session, error) {
+	var sessions []store.Session
+	for _, value := range f.sessions {
+		if value.State == StateActive || (value.State == StateStopping && !value.StopCommandID.Valid) {
+			sessions = append(sessions, value)
+		}
+	}
+	return sessions, nil
+}
+
 func (f *fakeRepository) GetSessionForStart(_ context.Context, arg store.GetSessionForStartParams) (store.Session, error) {
 	for _, value := range f.sessions {
 		if value.ChargerID == arg.ChargerID && value.ConnectorID == arg.ConnectorID &&
@@ -608,6 +775,17 @@ func (f *fakeRepository) RestoreSessionActive(_ context.Context, id pgtype.UUID)
 	return 0, nil
 }
 
+func (f *fakeRepository) RestoreLimitSessionActive(_ context.Context, arg store.RestoreLimitSessionActiveParams) (int64, error) {
+	value, ok := f.sessions[uuid.UUID(arg.SessionRef.Bytes)]
+	if ok && value.State == StateStopping && !value.StopCommandID.Valid && value.StopSource == arg.StopSource {
+		value.State = StateActive
+		value.StopSource = pgtype.Text{}
+		f.sessions[uuid.UUID(arg.SessionRef.Bytes)] = value
+		return 1, nil
+	}
+	return 0, nil
+}
+
 func (f *fakeRepository) FailSession(_ context.Context, arg store.FailSessionParams) (int64, error) {
 	value, ok := f.sessions[uuid.UUID(arg.SessionRef.Bytes)]
 	if !ok || value.State != StateStartRequested {
@@ -622,6 +800,19 @@ func (f *fakeRepository) FailSession(_ context.Context, arg store.FailSessionPar
 func (f *fakeRepository) GetSessionByTransaction(_ context.Context, arg store.GetSessionByTransactionParams) (store.Session, error) {
 	for _, value := range f.sessions {
 		if value.ChargerID == arg.ChargerID && value.OcppTransactionID == arg.OcppTransactionID {
+			return value, nil
+		}
+	}
+	return store.Session{}, pgx.ErrNoRows
+}
+
+func (f *fakeRepository) RecordMeterValue(_ context.Context, arg store.RecordMeterValueParams) (store.Session, error) {
+	for id, value := range f.sessions {
+		if value.ChargerID == arg.ChargerID && value.OcppTransactionID == arg.OcppTransactionID &&
+			(value.State == StateActive || value.State == StateStopping) &&
+			(!value.LastEnergyWh.Valid || arg.LastEnergyWh.Int64 >= value.LastEnergyWh.Int64) {
+			value.LastEnergyWh = arg.LastEnergyWh
+			f.sessions[id] = value
 			return value, nil
 		}
 	}

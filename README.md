@@ -21,6 +21,17 @@ That builds the gateway, platform, and a virtual charger. The simulator connects
 - Simulator: http://127.0.0.1:8081/health
 - Platform: http://127.0.0.1:3000/health
 
+Run an accelerated charging session that stops at a gateway-enforced limit:
+
+```bash
+./scripts/demo-session.sh energy
+./scripts/demo-session.sh duration
+```
+
+Each command signs a remote-start request, waits for the simulator's
+StartTransaction, MeterValues, and StopTransaction flow, then prints the
+authoritative start/stop meter readings from the gateway database.
+
 Later, `docker compose --profile demo up` will run a full prepaid session on fake data.
 
 ## Ownership rule
@@ -73,7 +84,7 @@ Tax handling is a **simulation**, not tax advice. GST rate is configurable and d
 |---|---|
 | `gateway/` | Go OCPP gateway |
 | `platform/` | Rails + Sidekiq business platform |
-| `simulator/` | Virtual charger (later) |
+| `simulator/` | Constant-power virtual OCPP charger |
 | `mock-upi/` | Mock payment provider (later) |
 | `contracts/` | Command and event schemas |
 | `docs/` | ADRs and design notes |

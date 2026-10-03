@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/arnabry11/ev-charging/gateway/internal/registry"
@@ -28,6 +29,7 @@ const (
 	StateFailed         = "failed"
 
 	commandWorkTimeout = 30 * time.Second
+	limitRetryDelay    = 5 * time.Second
 )
 
 var errDispatchNotStarted = errors.New("command dispatch not started")
@@ -71,12 +73,15 @@ type repository interface {
 	CompleteCommand(context.Context, store.CompleteCommandParams) (int64, error)
 	CreateSession(context.Context, store.CreateSessionParams) (store.Session, error)
 	GetSession(context.Context, pgtype.UUID) (store.Session, error)
+	ListRecoverableSessions(context.Context) ([]store.Session, error)
 	GetSessionForStart(context.Context, store.GetSessionForStartParams) (store.Session, error)
 	ActivateSession(context.Context, store.ActivateSessionParams) (store.Session, error)
 	MarkSessionStopping(context.Context, store.MarkSessionStoppingParams) (store.Session, error)
 	RestoreSessionActive(context.Context, pgtype.UUID) (int64, error)
+	RestoreLimitSessionActive(context.Context, store.RestoreLimitSessionActiveParams) (int64, error)
 	FailSession(context.Context, store.FailSessionParams) (int64, error)
 	GetSessionByTransaction(context.Context, store.GetSessionByTransactionParams) (store.Session, error)
+	RecordMeterValue(context.Context, store.RecordMeterValueParams) (store.Session, error)
 	StopSession(context.Context, store.StopSessionParams) (store.Session, error)
 }
 
@@ -94,6 +99,15 @@ type Engine struct {
 	chargers chargerLookup
 	commands commander
 	now      func() time.Time
+	after    func(time.Duration) <-chan time.Time
+
+	timersMu sync.Mutex
+	timers   map[uuid.UUID]durationTimer
+}
+
+type durationTimer struct {
+	token  uuid.UUID
+	cancel context.CancelFunc
 }
 
 func New(repo repository, chargers chargerLookup, commands commander) *Engine {
@@ -102,7 +116,31 @@ func New(repo repository, chargers chargerLookup, commands commander) *Engine {
 		chargers: chargers,
 		commands: commands,
 		now:      time.Now,
+		after:    time.After,
+		timers:   make(map[uuid.UUID]durationTimer),
 	}
+}
+
+func (e *Engine) Recover(ctx context.Context) error {
+	sessions, err := e.repo.ListRecoverableSessions(ctx)
+	if err != nil {
+		return err
+	}
+	for _, current := range sessions {
+		if current.State == StateStopping {
+			go e.dispatchLimitStop(current)
+			continue
+		}
+		if current.MeterStartWh.Valid && current.LastEnergyWh.Valid &&
+			current.LastEnergyWh.Int64-current.MeterStartWh.Int64 >= current.LimitEnergyWh {
+			if err := e.requestLimitStop(ctx, current, "energy_limit"); err != nil {
+				return err
+			}
+			continue
+		}
+		e.scheduleDuration(current)
+	}
+	return nil
 }
 
 func (e *Engine) Start(ctx context.Context, request StartRequest) (Response, error) {
@@ -258,7 +296,36 @@ func (e *Engine) Activate(ctx context.Context, chargerID string, connectorID int
 	if active.State != StateActive || !active.OcppTransactionID.Valid {
 		return 0, pgx.ErrNoRows
 	}
+	e.scheduleDuration(active)
 	return int(active.OcppTransactionID.Int32), nil
+}
+
+func (e *Engine) Meter(ctx context.Context, chargerID string, transactionID int, energyWh int64, recordedAt time.Time) error {
+	ocppTransactionID := pgtype.Int4{Int32: int32(transactionID), Valid: true}
+	current, err := e.repo.RecordMeterValue(ctx, store.RecordMeterValueParams{
+		ChargerID:         chargerID,
+		OcppTransactionID: ocppTransactionID,
+		LastEnergyWh:      pgtype.Int8{Int64: energyWh, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing, getErr := e.repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
+			ChargerID:         chargerID,
+			OcppTransactionID: ocppTransactionID,
+		})
+		if getErr == nil && existing.LastEnergyWh.Valid && energyWh <= existing.LastEnergyWh.Int64 {
+			return nil
+		}
+		return err
+	}
+	if err != nil || current.State != StateActive {
+		return err
+	}
+
+	source := limitReached(current, energyWh, recordedAt)
+	if source == "" {
+		return nil
+	}
+	return e.requestLimitStop(ctx, current, source)
 }
 
 func (e *Engine) Finish(ctx context.Context, chargerID string, transactionID int, meterStopWh int64, stoppedAt time.Time, reason string) error {
@@ -270,6 +337,7 @@ func (e *Engine) Finish(ctx context.Context, chargerID string, transactionID int
 		return err
 	}
 	if current.State == StateStopped {
+		e.cancelDuration(current.SessionRef)
 		return nil
 	}
 	_, err = e.repo.StopSession(ctx, store.StopSessionParams{
@@ -280,15 +348,155 @@ func (e *Engine) Finish(ctx context.Context, chargerID string, transactionID int
 		StopReason:        pgtype.Text{String: reason, Valid: reason != ""},
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		current, err = e.repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
+		current, getErr := e.repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
 			ChargerID:         chargerID,
 			OcppTransactionID: pgtype.Int4{Int32: int32(transactionID), Valid: true},
 		})
-		if err == nil && current.State == StateStopped {
+		if getErr != nil {
+			return getErr
+		}
+		if current.State == StateStopped {
+			e.cancelDuration(current.SessionRef)
 			return nil
 		}
+		return pgx.ErrNoRows
+	}
+	if err == nil {
+		e.cancelDuration(current.SessionRef)
 	}
 	return err
+}
+
+func (e *Engine) requestLimitStop(ctx context.Context, current store.Session, source string) error {
+	stopping, err := e.repo.MarkSessionStopping(ctx, store.MarkSessionStoppingParams{
+		SessionRef:    current.SessionRef,
+		StopSource:    pgtype.Text{String: source, Valid: true},
+		StopCommandID: pgtype.UUID{},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	e.cancelDuration(current.SessionRef)
+	go e.dispatchLimitStop(stopping)
+	return nil
+}
+
+func (e *Engine) scheduleDuration(current store.Session) {
+	if !current.StartedAt.Valid {
+		return
+	}
+	delay := current.StartedAt.Time.Add(time.Duration(current.LimitDurationS) * time.Second).Sub(e.now())
+	if delay < 0 {
+		delay = 0
+	}
+
+	key := uuid.UUID(current.SessionRef.Bytes)
+	token := uuid.New()
+	timerCtx, cancel := context.WithCancel(context.Background())
+	e.timersMu.Lock()
+	if previous, ok := e.timers[key]; ok {
+		previous.cancel()
+	}
+	e.timers[key] = durationTimer{token: token, cancel: cancel}
+	e.timersMu.Unlock()
+
+	go e.waitForDuration(timerCtx, current.SessionRef, key, token, delay)
+}
+
+func (e *Engine) waitForDuration(ctx context.Context, sessionRef pgtype.UUID, key, token uuid.UUID, delay time.Duration) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-e.after(delay):
+	}
+
+	e.timersMu.Lock()
+	currentTimer, ok := e.timers[key]
+	if !ok || currentTimer.token != token {
+		e.timersMu.Unlock()
+		return
+	}
+	delete(e.timers, key)
+	e.timersMu.Unlock()
+
+	workCtx, cancel := context.WithTimeout(context.Background(), commandWorkTimeout)
+	defer cancel()
+	current, err := e.repo.GetSession(workCtx, sessionRef)
+	if err != nil || current.State != StateActive {
+		return
+	}
+	_ = e.requestLimitStop(workCtx, current, "duration_limit")
+}
+
+func (e *Engine) cancelDuration(sessionRef pgtype.UUID) {
+	key := uuid.UUID(sessionRef.Bytes)
+	e.timersMu.Lock()
+	defer e.timersMu.Unlock()
+	if timer, ok := e.timers[key]; ok {
+		timer.cancel()
+		delete(e.timers, key)
+	}
+}
+
+func (e *Engine) dispatchLimitStop(current store.Session) {
+	ctx, cancel := context.WithTimeout(context.Background(), commandWorkTimeout)
+	defer cancel()
+	accepted, err := e.commands.RemoteStop(
+		ctx,
+		current.ChargerID,
+		int(current.OcppTransactionID.Int32),
+		func() error { return nil },
+	)
+	if accepted {
+		return
+	}
+	if isAmbiguous(err) {
+		e.retryLimitStop(current)
+		return
+	}
+	restored, restoreErr := e.repo.RestoreLimitSessionActive(ctx, store.RestoreLimitSessionActiveParams{
+		SessionRef: current.SessionRef,
+		StopSource: current.StopSource,
+	})
+	if restoreErr == nil && restored == 1 {
+		e.retryLimitStop(current)
+	}
+}
+
+func (e *Engine) retryLimitStop(previous store.Session) {
+	go func() {
+		<-e.after(limitRetryDelay)
+		ctx, cancel := context.WithTimeout(context.Background(), commandWorkTimeout)
+		defer cancel()
+		current, err := e.repo.GetSession(ctx, previous.SessionRef)
+		if err != nil {
+			return
+		}
+		switch current.State {
+		case StateActive:
+			_ = e.requestLimitStop(ctx, current, previous.StopSource.String)
+		case StateStopping:
+			if !current.StopCommandID.Valid && current.StopSource == previous.StopSource {
+				e.dispatchLimitStop(current)
+			}
+		}
+	}()
+}
+
+func limitReached(current store.Session, energyWh int64, recordedAt time.Time) string {
+	if current.MeterStartWh.Valid && energyWh-current.MeterStartWh.Int64 >= current.LimitEnergyWh {
+		return "energy_limit"
+	}
+	if !current.StartedAt.Valid || recordedAt.Before(current.StartedAt.Time) {
+		return ""
+	}
+	if recordedAt.Sub(current.StartedAt.Time) >= time.Duration(current.LimitDurationS)*time.Second {
+		return "duration_limit"
+	}
+	return ""
 }
 
 func (e *Engine) startRecorded(ctx context.Context, request StartRequest, claimToken uuid.UUID) (Response, bool, error) {
@@ -421,6 +629,7 @@ func (e *Engine) stopRecorded(ctx context.Context, request StopRequest, claimTok
 			}
 		}
 	}
+	e.cancelDuration(current.SessionRef)
 
 	accepted, err := e.commands.RemoteStop(
 		ctx,
@@ -451,6 +660,7 @@ func (e *Engine) stopRecorded(ctx context.Context, request StopRequest, claimTok
 		if changed == 0 {
 			return e.reconcileStopResult(resultCtx, request)
 		}
+		e.scheduleDuration(current)
 		return commandResponse(http.StatusAccepted, StateActive, commandFailure(err)), true, nil
 	}
 	return commandResponse(http.StatusAccepted, StateStopping, "accepted"), true, nil

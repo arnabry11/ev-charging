@@ -260,6 +260,55 @@ func (q *Queries) GetSessionForStart(ctx context.Context, arg GetSessionForStart
 	return i, err
 }
 
+const listRecoverableSessions = `-- name: ListRecoverableSessions :many
+SELECT session_ref, tenant_id, start_command_id, stop_command_id, charger_id, connector_id, id_tag, state, ocpp_transaction_id, limit_energy_wh, limit_duration_s, meter_start_wh, meter_stop_wh, last_energy_wh, started_at, stopped_at, stop_reason, stop_source, created_at, updated_at
+FROM sessions
+WHERE state = 'active'
+   OR (state = 'stopping' AND stop_command_id IS NULL)
+ORDER BY started_at
+`
+
+func (q *Queries) ListRecoverableSessions(ctx context.Context) ([]Session, error) {
+	rows, err := q.db.Query(ctx, listRecoverableSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.SessionRef,
+			&i.TenantID,
+			&i.StartCommandID,
+			&i.StopCommandID,
+			&i.ChargerID,
+			&i.ConnectorID,
+			&i.IDTag,
+			&i.State,
+			&i.OcppTransactionID,
+			&i.LimitEnergyWh,
+			&i.LimitDurationS,
+			&i.MeterStartWh,
+			&i.MeterStopWh,
+			&i.LastEnergyWh,
+			&i.StartedAt,
+			&i.StoppedAt,
+			&i.StopReason,
+			&i.StopSource,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markSessionStopping = `-- name: MarkSessionStopping :one
 UPDATE sessions
 SET state = 'stopping',
@@ -305,6 +354,76 @@ func (q *Queries) MarkSessionStopping(ctx context.Context, arg MarkSessionStoppi
 	return i, err
 }
 
+const recordMeterValue = `-- name: RecordMeterValue :one
+UPDATE sessions
+SET last_energy_wh = $3,
+    updated_at = now()
+WHERE charger_id = $1
+  AND ocpp_transaction_id = $2
+  AND state IN ('active', 'stopping')
+  AND $3 >= meter_start_wh
+  AND (last_energy_wh IS NULL OR $3 >= last_energy_wh)
+RETURNING session_ref, tenant_id, start_command_id, stop_command_id, charger_id, connector_id, id_tag, state, ocpp_transaction_id, limit_energy_wh, limit_duration_s, meter_start_wh, meter_stop_wh, last_energy_wh, started_at, stopped_at, stop_reason, stop_source, created_at, updated_at
+`
+
+type RecordMeterValueParams struct {
+	ChargerID         string      `json:"charger_id"`
+	OcppTransactionID pgtype.Int4 `json:"ocpp_transaction_id"`
+	LastEnergyWh      pgtype.Int8 `json:"last_energy_wh"`
+}
+
+func (q *Queries) RecordMeterValue(ctx context.Context, arg RecordMeterValueParams) (Session, error) {
+	row := q.db.QueryRow(ctx, recordMeterValue, arg.ChargerID, arg.OcppTransactionID, arg.LastEnergyWh)
+	var i Session
+	err := row.Scan(
+		&i.SessionRef,
+		&i.TenantID,
+		&i.StartCommandID,
+		&i.StopCommandID,
+		&i.ChargerID,
+		&i.ConnectorID,
+		&i.IDTag,
+		&i.State,
+		&i.OcppTransactionID,
+		&i.LimitEnergyWh,
+		&i.LimitDurationS,
+		&i.MeterStartWh,
+		&i.MeterStopWh,
+		&i.LastEnergyWh,
+		&i.StartedAt,
+		&i.StoppedAt,
+		&i.StopReason,
+		&i.StopSource,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const restoreLimitSessionActive = `-- name: RestoreLimitSessionActive :execrows
+UPDATE sessions
+SET state = 'active',
+    stop_source = NULL,
+    updated_at = now()
+WHERE session_ref = $1
+  AND state = 'stopping'
+  AND stop_command_id IS NULL
+  AND stop_source = $2
+`
+
+type RestoreLimitSessionActiveParams struct {
+	SessionRef pgtype.UUID `json:"session_ref"`
+	StopSource pgtype.Text `json:"stop_source"`
+}
+
+func (q *Queries) RestoreLimitSessionActive(ctx context.Context, arg RestoreLimitSessionActiveParams) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreLimitSessionActive, arg.SessionRef, arg.StopSource)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const restoreSessionActive = `-- name: RestoreSessionActive :execrows
 UPDATE sessions
 SET state = 'active',
@@ -334,6 +453,7 @@ SET state = 'stopped',
 WHERE charger_id = $1
   AND ocpp_transaction_id = $2
   AND state IN ('active', 'stopping')
+  AND $3 >= COALESCE(last_energy_wh, meter_start_wh)
 RETURNING session_ref, tenant_id, start_command_id, stop_command_id, charger_id, connector_id, id_tag, state, ocpp_transaction_id, limit_energy_wh, limit_duration_s, meter_start_wh, meter_stop_wh, last_energy_wh, started_at, stopped_at, stop_reason, stop_source, created_at, updated_at
 `
 

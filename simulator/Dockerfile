@@ -3,6 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+RUN go test -race ./...
 RUN CGO_ENABLED=0 go build -o /bin/simulator ./cmd/simulator
 
 FROM alpine:3.21
