@@ -8,14 +8,14 @@
     <h1>Charging receipt</h1>
     <p>Session <%= @session.id %></p>
     <p>Card ending <%= @session.card_last4 %></p>
-    <p>Energy <%= @invoice.energy_wh %> Wh</p>
+    <p>Energy <%= wh_to_kwh(@invoice.energy_wh) %></p>
     <table>
-      <tr><th>Taxable</th><td data-amount="taxable"><%= @invoice.taxable_paise %></td></tr>
-      <tr><th>CGST</th><td data-amount="cgst"><%= @invoice.cgst_paise %></td></tr>
-      <tr><th>SGST</th><td data-amount="sgst"><%= @invoice.sgst_paise %></td></tr>
-      <tr><th>Total</th><td data-amount="total"><%= @invoice.total_paise %></td></tr>
-      <tr><th>Refund</th><td data-amount="refund"><%= @refund.amount_paise %></td></tr>
+      <tr><th>Taxable</th><td data-amount="taxable" data-paise="<%= @invoice.taxable_paise %>"><%= paise_to_rupees(@invoice.taxable_paise) %></td></tr>
+      <tr><th>CGST</th><td data-amount="cgst" data-paise="<%= @invoice.cgst_paise %>"><%= paise_to_rupees(@invoice.cgst_paise) %></td></tr>
+      <tr><th>SGST</th><td data-amount="sgst" data-paise="<%= @invoice.sgst_paise %>"><%= paise_to_rupees(@invoice.sgst_paise) %></td></tr>
+      <tr><th>Total</th><td data-amount="total" data-paise="<%= @invoice.total_paise %>"><%= paise_to_rupees(@invoice.total_paise) %></td></tr>
+      <tr><th>Refund</th><td data-amount="refund" data-paise="<%= @refund.amount_paise %>"><%= paise_to_rupees(@refund.amount_paise) %></td></tr>
     </table>
-    <p>GST <%= @invoice.gst_rate_percent %>% split within the state. Amounts are paise.</p>
+    <p>GST <%= @invoice.gst_rate_percent %>% split within the state. Amounts are in rupees.</p>
   </body>
 </html>

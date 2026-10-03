@@ -49,9 +49,9 @@ python3 - "$invoice" <<'PY'
 import sys
 html = sys.argv[1]
 def amount(name):
-    marker = f'data-amount="{name}">'
+    marker = f'data-amount="{name}" data-paise="'
     start = html.index(marker) + len(marker)
-    return int(html[start:html.index("<", start)])
+    return int(html[start:html.index('"', start)])
 
 total = amount("total")
 refund = amount("refund")

@@ -12,7 +12,7 @@ You only need Docker.
 | --- | --- | --- |
 | Live board | http://127.0.0.1:3000/admin/live | One card per charger: kWh delivered, the running rupee amount, and progress towards the session limit. A stopped session keeps its final numbers. Updates every second over server-sent events. |
 | Live stream | http://127.0.0.1:3000/admin/live/stream | The same board as `text/event-stream`: one `board` event holding the rendered HTML whenever it changes. At most `LIVE_STREAM_MAX_CONNECTIONS` (8) streams at a time, because each holds a Puma thread. |
-| Admin | http://127.0.0.1:3000/admin/sessions | Prepaid sessions, and a session page with payment, invoice, refund, and gateway events. |
+| Admin | http://127.0.0.1:3000/admin/sessions | Prepaid sessions, and a session page with payment, invoice, refund, and gateway events. Amounts are in rupees. |
 | Receipt | http://127.0.0.1:3000/internal/v1/prepaid-sessions/{id}/invoice | HTML invoice after settlement. |
 | Platform health | http://127.0.0.1:3000/health | Rails process is up. |
 | Gateway health | http://127.0.0.1:8080/health | Go process is up. |
@@ -138,7 +138,7 @@ Ten chargers charge at the same time, at different power levels and with differe
 ./scripts/prepay-session.sh
 ```
 
-The script posts a prepaid session for phone `9876543210` on `CHG-MUM-0001`, posts that same request again, and requires one session id. It waits until the virtual charger has delivered **240 Wh**, then waits until the receipt shows **1432** paise and a **0** refund. The live board updates while that session is charging. After it stops, the session page links to the receipt.
+The script posts a prepaid session for phone `9876543210` on `CHG-MUM-0001`, posts that same request again, and requires one session id. It waits until the virtual charger has delivered **240 Wh**, then waits until the receipt shows **₹14.32** and a **₹0.00** refund. The receipt keeps the exact integer paise in a `data-paise` attribute, which is what the script checks. The live board updates while that session is charging. After it stops, the session page links to the receipt.
 
 The simulator runs `SIM_CHARGER_COUNT` chargers (default 10) in one process. `CHG-MUM-0001` is a constant **7.2 kW** charger. The others run at 50%, 150%, 300% and 75% of that, repeating. Each wall-clock second stands for **10** simulated seconds (`SIM_SECONDS_PER_TICK`), so a 7.2 kW charger delivers **20 Wh** per second. A 240 Wh charge takes about 12 seconds, and ₹100 buys 5 kWh, which takes about four minutes.
 

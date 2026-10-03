@@ -37,7 +37,15 @@ RSpec.describe "Admin session detail", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(response.body).to include("Card ending 4242")
-    expect(response.body).to include("1432")
+    text = Nokogiri::HTML.parse(response.body).text.squish
+    expect(text).to include("Prepaid ₹14.32")
+    expect(text).to include("Energy 0.24 kWh")
+    expect(text).to include("Taxable ₹12.14")
+    expect(text).to include("CGST ₹1.09")
+    expect(text).to include("SGST ₹1.09")
+    expect(text).to include("Total ₹14.32")
+    expect(text).to include("Refund ₹0.00")
+    expect(response.body).not_to include("paise")
     expect(response.body).to include("session.stopped")
     expect(response.body).to include("Receipt")
     expect(response.body).not_to include("4242424242424242")
