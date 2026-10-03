@@ -10,6 +10,8 @@ Rails.application.routes.draw do
   post "internal/v1/chargers" => "internal/v1/chargers#create"
   get "internal/v1/drivers" => "internal/v1/drivers#index"
   post "internal/v1/drivers" => "internal/v1/drivers#create"
+  get "internal/v1/tariff" => "internal/v1/tariffs#show"
+  put "internal/v1/tariff" => "internal/v1/tariffs#update"
 
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
