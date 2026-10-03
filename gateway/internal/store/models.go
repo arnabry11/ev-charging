@@ -23,6 +23,20 @@ type CommandInbox struct {
 	CompletedAt  pgtype.Timestamptz `json:"completed_at"`
 }
 
+type Outbox struct {
+	EventID     pgtype.UUID        `json:"event_id"`
+	TenantID    pgtype.UUID        `json:"tenant_id"`
+	SessionRef  pgtype.UUID        `json:"session_ref"`
+	Sequence    int64              `json:"sequence"`
+	EventType   string             `json:"event_type"`
+	Payload     []byte             `json:"payload"`
+	OccurredAt  pgtype.Timestamptz `json:"occurred_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	PublishedAt pgtype.Timestamptz `json:"published_at"`
+	Attempts    int32              `json:"attempts"`
+	LockedUntil pgtype.Timestamptz `json:"locked_until"`
+}
+
 type Session struct {
 	SessionRef        pgtype.UUID        `json:"session_ref"`
 	TenantID          pgtype.UUID        `json:"tenant_id"`
@@ -44,4 +58,10 @@ type Session struct {
 	StopSource        pgtype.Text        `json:"stop_source"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SessionEventSequence struct {
+	SessionRef   pgtype.UUID `json:"session_ref"`
+	TenantID     pgtype.UUID `json:"tenant_id"`
+	LastSequence int64       `json:"last_sequence"`
 }

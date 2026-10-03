@@ -24,3 +24,7 @@ requests `RemoteStopTransaction` when either the command's energy or duration
 limit is reached. Limits are numeric inputs from the platform; the gateway does
 not calculate prices.
 
+Session transitions and command completions append `session.started`,
+`session.meter_values`, `session.stopped`, and `command.result` rows to the
+outbox in the same database transaction. Each session has a gap-free sequence.
+

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/arnabry11/ev-charging/gateway/internal/store"
 	"github.com/google/uuid"
@@ -116,6 +117,106 @@ func TestCommandInsertAndClaimAreConcurrentSafe(t *testing.T) {
 	}
 	if currentCompletions != 1 {
 		t.Fatalf("current completions = %d, want 1", currentCompletions)
+	}
+}
+
+func TestOutboxSequencesAreUniqueUnderConcurrency(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(ctx, "TRUNCATE outbox, session_event_sequences"); err != nil {
+		t.Fatal(err)
+	}
+
+	queries := store.New(pool)
+	sessionRef := pgtype.UUID{Bytes: uuid.New(), Valid: true}
+	sequences := make(chan int64, 20)
+	runConcurrently(t, 20, func() error {
+		event, err := queries.AppendOutboxEvent(ctx, store.AppendOutboxEventParams{
+			SessionRef: sessionRef,
+			EventType:  "session.meter_values",
+			Payload:    []byte(`{"energy_wh":1}`),
+			OccurredAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		})
+		if err == nil {
+			sequences <- event.Sequence
+		}
+		return err
+	})
+	close(sequences)
+
+	seen := map[int64]bool{}
+	for sequence := range sequences {
+		if sequence < 1 || sequence > 20 || seen[sequence] {
+			t.Fatalf("duplicate or invalid sequence %d", sequence)
+		}
+		seen[sequence] = true
+	}
+	if len(seen) != 20 {
+		t.Fatalf("sequences = %d, want 20", len(seen))
+	}
+}
+
+func TestOutboxClaimPublishesEachSessionInOrder(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(ctx, "TRUNCATE outbox, session_event_sequences"); err != nil {
+		t.Fatal(err)
+	}
+
+	queries := store.New(pool)
+	sessionRef := pgtype.UUID{Bytes: uuid.New(), Valid: true}
+	for range 2 {
+		if _, err := queries.AppendOutboxEvent(ctx, store.AppendOutboxEventParams{
+			SessionRef: sessionRef,
+			EventType:  "session.meter_values",
+			Payload:    []byte(`{"energy_wh":1}`),
+			OccurredAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := queries.ClaimOutboxBatch(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].Sequence != 1 {
+		t.Fatalf("first claim = %+v", first)
+	}
+	second, err := queries.ClaimOutboxBatch(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second claim = %+v, want none while sequence 1 is unpublished", second)
+	}
+	if _, err := queries.MarkOutboxPublished(ctx, first[0].EventID); err != nil {
+		t.Fatal(err)
+	}
+	next, err := queries.ClaimOutboxBatch(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next) != 1 || next[0].Sequence != 2 {
+		t.Fatalf("next claim = %+v", next)
 	}
 }
 

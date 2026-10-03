@@ -26,7 +26,7 @@ func TestTransactionCallbacksAreConcurrentSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, "TRUNCATE sessions, command_inbox"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE outbox, session_event_sequences, sessions, command_inbox"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,7 +52,7 @@ func TestTransactionCallbacksAreConcurrentSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine := New(queries, nil, nil)
+	engine := New(queries, nil, nil).WithUnitOfWork(NewTransactor(pool))
 	transactionIDs := runOperations(t, 12, func() (int, error) {
 		return engine.Activate(ctx, "CHG-1", 1, "ID-1", 1_000, time.Now())
 	})

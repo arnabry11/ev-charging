@@ -12,7 +12,9 @@ import (
 
 type Querier interface {
 	ActivateSession(ctx context.Context, arg ActivateSessionParams) (Session, error)
+	AppendOutboxEvent(ctx context.Context, arg AppendOutboxEventParams) (Outbox, error)
 	ClaimCommand(ctx context.Context, arg ClaimCommandParams) (CommandInbox, error)
+	ClaimOutboxBatch(ctx context.Context, limit int32) ([]Outbox, error)
 	CompleteCommand(ctx context.Context, arg CompleteCommandParams) (int64, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	FailSession(ctx context.Context, arg FailSessionParams) (int64, error)
@@ -23,8 +25,10 @@ type Querier interface {
 	InsertCommand(ctx context.Context, arg InsertCommandParams) (int64, error)
 	ListRecoverableSessions(ctx context.Context) ([]Session, error)
 	MarkCommandDispatching(ctx context.Context, arg MarkCommandDispatchingParams) (CommandInbox, error)
+	MarkOutboxPublished(ctx context.Context, eventID pgtype.UUID) (int64, error)
 	MarkSessionStopping(ctx context.Context, arg MarkSessionStoppingParams) (Session, error)
 	RecordMeterValue(ctx context.Context, arg RecordMeterValueParams) (Session, error)
+	ReleaseOutbox(ctx context.Context, eventID pgtype.UUID) error
 	RestoreLimitSessionActive(ctx context.Context, arg RestoreLimitSessionActiveParams) (int64, error)
 	RestoreSessionActive(ctx context.Context, sessionRef pgtype.UUID) (int64, error)
 	StopSession(ctx context.Context, arg StopSessionParams) (Session, error)
