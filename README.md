@@ -21,6 +21,7 @@ That builds the gateway, platform, and a virtual charger. The simulator connects
 - Simulator: http://127.0.0.1:8081/health
 - Platform health: http://127.0.0.1:3000/health
 - Platform admin: http://127.0.0.1:3000/admin/sessions
+- Platform live board: http://127.0.0.1:3000/admin/live
 
 Run an accelerated charging session that stops at a gateway-enforced limit:
 
