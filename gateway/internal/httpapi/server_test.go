@@ -35,6 +35,12 @@ func TestShowCharger(t *testing.T) {
 
 	reg := registry.New()
 	reg.Booted("CHG-MUM-0001", "POCSim", "ev-charging", "0.1", 10)
+	reg.ConnectorStatus("CHG-MUM-0001", registry.Connector{
+		ID:        1,
+		Status:    "Available",
+		ErrorCode: "NoError",
+		VendorID:  "POCSim",
+	}, time.Now())
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/v1/chargers/CHG-MUM-0001", nil)
 	rec := httptest.NewRecorder()
@@ -52,6 +58,14 @@ func TestShowCharger(t *testing.T) {
 	}
 	if body["vendor"] != "POCSim" {
 		t.Fatalf("vendor = %v", body["vendor"])
+	}
+	connectors := body["connectors"].([]any)
+	connector := connectors[0].(map[string]any)
+	if connector["status"] != "Available" {
+		t.Fatalf("connector = %v", connector)
+	}
+	if connector["vendor_id"] != "POCSim" {
+		t.Fatalf("connector = %v", connector)
 	}
 	if _, err := time.Parse(time.RFC3339, body["last_boot_at"].(string)); err != nil {
 		t.Fatalf("last_boot_at: %v", err)

@@ -11,14 +11,25 @@ const (
 )
 
 type Charger struct {
-	ID               string    `json:"charger_id"`
-	ConnectionState  string    `json:"connection_state"`
-	Vendor           string    `json:"vendor,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	FirmwareVersion  string    `json:"firmware_version,omitempty"`
-	LastSeenAt       time.Time `json:"last_seen_at"`
-	LastBootAt       time.Time `json:"last_boot_at,omitempty"`
-	HeartbeatInterval int      `json:"heartbeat_interval_s,omitempty"`
+	ID                string
+	ConnectionState   string
+	Vendor            string
+	Model             string
+	FirmwareVersion   string
+	LastSeenAt        time.Time
+	LastBootAt        time.Time
+	HeartbeatInterval int
+	Connectors        map[int]Connector
+}
+
+type Connector struct {
+	ID              int
+	Status          string
+	ErrorCode       string
+	Info            string
+	VendorID        string
+	VendorErrorCode string
+	UpdatedAt       time.Time
 }
 
 type Registry struct {
@@ -37,6 +48,9 @@ func (r *Registry) Connected(id string) {
 	c.ID = id
 	c.ConnectionState = StateConnected
 	c.LastSeenAt = time.Now().UTC()
+	if c.Connectors == nil {
+		c.Connectors = make(map[int]Connector)
+	}
 	r.chargers[id] = c
 }
 
@@ -58,6 +72,9 @@ func (r *Registry) Booted(id, vendor, model, firmware string, heartbeatInterval 
 	c := r.chargers[id]
 	c.ID = id
 	c.ConnectionState = StateConnected
+	if c.Connectors == nil {
+		c.Connectors = make(map[int]Connector)
+	}
 	c.Vendor = vendor
 	c.Model = model
 	c.FirmwareVersion = firmware
@@ -80,9 +97,37 @@ func (r *Registry) Heartbeat(id string) {
 	r.chargers[id] = c
 }
 
+func (r *Registry) ConnectorStatus(chargerID string, connector Connector, reportedAt time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	receivedAt := time.Now().UTC()
+	if reportedAt.IsZero() {
+		reportedAt = receivedAt
+	}
+	charger := r.chargers[chargerID]
+	charger.ID = chargerID
+	if charger.Connectors == nil {
+		charger.Connectors = make(map[int]Connector)
+	}
+	connector.UpdatedAt = reportedAt.UTC()
+	charger.Connectors[connector.ID] = connector
+	charger.LastSeenAt = receivedAt
+	r.chargers[chargerID] = charger
+}
+
 func (r *Registry) Get(id string) (Charger, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	c, ok := r.chargers[id]
+	c.Connectors = cloneConnectors(c.Connectors)
 	return c, ok
+}
+
+func cloneConnectors(connectors map[int]Connector) map[int]Connector {
+	cloned := make(map[int]Connector, len(connectors))
+	for id, connector := range connectors {
+		cloned[id] = connector
+	}
+	return cloned
 }

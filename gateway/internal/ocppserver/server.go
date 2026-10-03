@@ -3,6 +3,7 @@ package ocppserver
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/arnabry11/ev-charging/gateway/internal/auth"
 	"github.com/arnabry11/ev-charging/gateway/internal/registry"
@@ -108,8 +109,26 @@ func (h *coreHandler) OnMeterValues(_ string, _ *core.MeterValuesRequest) (*core
 	return core.NewMeterValuesConfirmation(), nil
 }
 
-func (h *coreHandler) OnStatusNotification(chargerID string, _ *core.StatusNotificationRequest) (*core.StatusNotificationConfirmation, error) {
-	h.registry.Heartbeat(chargerID)
+func (h *coreHandler) OnStatusNotification(chargerID string, request *core.StatusNotificationRequest) (*core.StatusNotificationConfirmation, error) {
+	h.logger.Info(
+		"StatusNotification",
+		"charger_id", chargerID,
+		"connector_id", request.ConnectorId,
+		"status", request.Status,
+		"error_code", request.ErrorCode,
+	)
+	var reportedAt time.Time
+	if request.Timestamp != nil {
+		reportedAt = request.Timestamp.Time
+	}
+	h.registry.ConnectorStatus(chargerID, registry.Connector{
+		ID:              request.ConnectorId,
+		Status:          string(request.Status),
+		ErrorCode:       string(request.ErrorCode),
+		Info:            request.Info,
+		VendorID:        request.VendorId,
+		VendorErrorCode: request.VendorErrorCode,
+	}, reportedAt)
 	return core.NewStatusNotificationConfirmation(), nil
 }
 
