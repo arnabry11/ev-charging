@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-max_energy_wh=1200
+max_energy_wh=400
 random_uuid() {
   local value
   value="$(openssl rand -hex 16)"

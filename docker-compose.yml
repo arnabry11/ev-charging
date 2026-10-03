@@ -5,7 +5,7 @@ services:
       PORT: "8080"
       OCPP_PORT: "9000"
       HEARTBEAT_INTERVAL_S: "10"
-      CHARGER_AUTH: ${CHARGER_AUTH:-CHG-MUM-0001:demo-password}
+      CHARGER_AUTH: ${CHARGER_AUTH:-CHG-MUM-0001:demo-password,CHG-MUM-0002:demo-password,CHG-MUM-0003:demo-password,CHG-MUM-0004:demo-password,CHG-MUM-0005:demo-password,CHG-MUM-0006:demo-password,CHG-MUM-0007:demo-password,CHG-MUM-0008:demo-password,CHG-MUM-0009:demo-password,CHG-MUM-0010:demo-password}
       DATABASE_URL: postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@gateway-db:5432/${GATEWAY_DB:-ev_gateway}?sslmode=disable
       PLATFORM_SIGNING_SECRET: ${PLATFORM_SIGNING_SECRET:-dev-platform-secret}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-dev-gateway-secret}
@@ -36,10 +36,11 @@ services:
       CHARGER_PASSWORD: ${CHARGER_PASSWORD:-demo-password}
       GATEWAY_URL: ws://gateway:9000
       HTTP_ADDR: ":8081"
+      SIM_CHARGER_COUNT: ${SIM_CHARGER_COUNT:-10}
       SIM_POWER_W: ${SIM_POWER_W:-7200}
       SIM_METER_START_WH: ${SIM_METER_START_WH:-100000}
       SIM_TICK_INTERVAL_MS: ${SIM_TICK_INTERVAL_MS:-1000}
-      SIM_SECONDS_PER_TICK: ${SIM_SECONDS_PER_TICK:-60}
+      SIM_SECONDS_PER_TICK: ${SIM_SECONDS_PER_TICK:-10}
     ports:
       - "${SIMULATOR_HTTP_PORT:-8081}:8081"
     depends_on:
