@@ -4,6 +4,7 @@ class Tenant < ApplicationRecord
   has_many :chargers, dependent: :restrict_with_exception
   has_many :drivers, dependent: :restrict_with_exception
   has_many :tariffs, dependent: :restrict_with_exception
+  has_many :prepaid_sessions, dependent: :restrict_with_exception
   has_one :active_tariff, -> { where(active: true) }, class_name: "Tariff"
 
   validates :name, presence: true
