@@ -1,4 +1,46 @@
 services:
+  gateway:
+    build: ./gateway
+    environment:
+      PORT: "8080"
+    ports:
+      - "${GATEWAY_HTTP_PORT:-8080}:8080"
+    depends_on:
+      gateway-db:
+        condition: service_healthy
+
+  platform:
+    build: ./platform
+    environment:
+      RAILS_ENV: development
+      DATABASE_URL: postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@platform-db:5432/${PLATFORM_DB:-ev_platform}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-dev-insecure-secret-key-base-for-compose-only}
+      PORT: "3000"
+    ports:
+      - "${PLATFORM_HTTP_PORT:-3000}:3000"
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  platform-worker:
+    build: ./platform
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    healthcheck:
+      disable: true
+    environment:
+      RAILS_ENV: development
+      DATABASE_URL: postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@platform-db:5432/${PLATFORM_DB:-ev_platform}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-dev-insecure-secret-key-base-for-compose-only}
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   gateway-db:
     image: postgres:16-alpine
     environment:
