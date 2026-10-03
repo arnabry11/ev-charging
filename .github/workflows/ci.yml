@@ -5,9 +5,41 @@ on:
   pull_request:
 
 jobs:
-  compose-config:
+  compose-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Validate Compose file
-        run: docker compose config --quiet
+      - run: cp .env.example .env
+      - run: docker compose up --build -d
+      - name: Check gateway health
+        run: curl --fail --retry 20 --retry-all-errors --retry-delay 2 --silent --show-error http://127.0.0.1:8080/health
+      - name: Check platform health
+        run: curl --fail --retry 30 --retry-all-errors --retry-delay 2 --silent --show-error http://127.0.0.1:3000/health
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v
+
+  gateway-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test gateway image
+        run: docker build --target build -t ev-gateway-test ./gateway
+
+  platform-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: cp .env.example .env
+      - run: docker compose up --build -d platform-db redis
+      - name: Run RSpec
+        run: >-
+          docker compose run --rm
+          -e RAILS_ENV=test
+          -e DATABASE_URL=postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@platform-db:5432/ev_platform_test
+          platform bundle exec rspec
+      - name: RuboCop
+        run: docker compose run --rm -e SKIP_DB_PREPARE=1 platform bundle exec rubocop
+      - if: always()
+        run: docker compose down -v

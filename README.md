@@ -13,7 +13,12 @@ cp .env.example .env
 docker compose up
 ```
 
-That starts two Postgres databases and Redis. Application images (gateway, platform, simulator) land in the next PRs; after that the same command boots the stack, and `docker compose --profile demo up` will run a full prepaid session on fake data.
+That builds the gateway and platform images, starts two Postgres databases and Redis, and waits until `/health` is up on both apps.
+
+- Gateway: http://127.0.0.1:8080/health
+- Platform: http://127.0.0.1:3000/health
+
+Later, `docker compose --profile demo up` will run a full prepaid session on fake data.
 
 ## Ownership rule
 
