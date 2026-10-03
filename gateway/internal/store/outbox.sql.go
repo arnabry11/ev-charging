@@ -22,7 +22,7 @@ WITH seq AS (
 INSERT INTO outbox (session_ref, sequence, event_type, payload, occurred_at)
 SELECT $1, last_sequence, $2, $3, $4
 FROM seq
-RETURNING event_id, tenant_id, session_ref, sequence, event_type, payload, occurred_at, created_at, published_at, attempts, locked_until
+RETURNING event_id, tenant_id, session_ref, sequence, event_type, payload, occurred_at, created_at, published_at, attempts, locked_until, rejections, last_error, dead_at
 `
 
 type AppendOutboxEventParams struct {
@@ -52,6 +52,9 @@ func (q *Queries) AppendOutboxEvent(ctx context.Context, arg AppendOutboxEventPa
 		&i.PublishedAt,
 		&i.Attempts,
 		&i.LockedUntil,
+		&i.Rejections,
+		&i.LastError,
+		&i.DeadAt,
 	)
 	return i, err
 }
@@ -61,6 +64,7 @@ WITH candidates AS (
     SELECT event_id, session_ref, sequence
     FROM outbox AS pending
     WHERE published_at IS NULL
+      AND dead_at IS NULL
       AND (locked_until IS NULL OR locked_until < now())
       AND NOT EXISTS (
           SELECT 1
@@ -68,6 +72,7 @@ WITH candidates AS (
           WHERE earlier.session_ref = pending.session_ref
             AND earlier.sequence < pending.sequence
             AND earlier.published_at IS NULL
+            AND earlier.dead_at IS NULL
       )
     ORDER BY session_ref, sequence
     FOR UPDATE SKIP LOCKED
@@ -82,7 +87,7 @@ UPDATE outbox
 SET locked_until = now() + interval '30 seconds',
     attempts = attempts + 1
 WHERE event_id IN (SELECT event_id FROM heads)
-RETURNING event_id, tenant_id, session_ref, sequence, event_type, payload, occurred_at, created_at, published_at, attempts, locked_until
+RETURNING event_id, tenant_id, session_ref, sequence, event_type, payload, occurred_at, created_at, published_at, attempts, locked_until, rejections, last_error, dead_at
 `
 
 func (q *Queries) ClaimOutboxBatch(ctx context.Context, limit int32) ([]Outbox, error) {
@@ -106,6 +111,9 @@ func (q *Queries) ClaimOutboxBatch(ctx context.Context, limit int32) ([]Outbox, 
 			&i.PublishedAt,
 			&i.Attempts,
 			&i.LockedUntil,
+			&i.Rejections,
+			&i.LastError,
+			&i.DeadAt,
 		); err != nil {
 			return nil, err
 		}
@@ -115,6 +123,32 @@ func (q *Queries) ClaimOutboxBatch(ctx context.Context, limit int32) ([]Outbox, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const deadLetterBlockedOutbox = `-- name: DeadLetterBlockedOutbox :execrows
+UPDATE outbox AS blocked
+SET dead_at = now(),
+    last_error = 'behind a dead event in the same session',
+    locked_until = NULL
+WHERE blocked.published_at IS NULL
+  AND blocked.dead_at IS NULL
+  AND EXISTS (
+      SELECT 1
+      FROM outbox AS dead
+      WHERE dead.session_ref = blocked.session_ref
+        AND dead.sequence < blocked.sequence
+        AND dead.dead_at IS NOT NULL
+  )
+`
+
+// Events behind a dead event in the same session can never be accepted in order,
+// so they are dead too. Returns how many were swept.
+func (q *Queries) DeadLetterBlockedOutbox(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deadLetterBlockedOutbox)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const markOutboxPublished = `-- name: MarkOutboxPublished :execrows
@@ -133,14 +167,49 @@ func (q *Queries) MarkOutboxPublished(ctx context.Context, eventID pgtype.UUID) 
 	return result.RowsAffected(), nil
 }
 
+const rejectOutbox = `-- name: RejectOutbox :one
+UPDATE outbox
+SET rejections = rejections + 1,
+    last_error = $2::text,
+    locked_until = now() + make_interval(secs => LEAST(60::float8, power(2::float8, LEAST(GREATEST(attempts - 1, 0), 6)))),
+    dead_at = CASE WHEN rejections + 1 >= $3::int THEN now() END
+WHERE event_id = $1
+  AND published_at IS NULL
+  AND dead_at IS NULL
+RETURNING (dead_at IS NOT NULL)::boolean AS dead
+`
+
+type RejectOutboxParams struct {
+	EventID       pgtype.UUID `json:"event_id"`
+	LastError     string      `json:"last_error"`
+	MaxRejections int32       `json:"max_rejections"`
+}
+
+// The platform refused this event. Count it, back off, and mark it dead once it
+// has been refused max_rejections times. Returns whether the event is now dead.
+func (q *Queries) RejectOutbox(ctx context.Context, arg RejectOutboxParams) (bool, error) {
+	row := q.db.QueryRow(ctx, rejectOutbox, arg.EventID, arg.LastError, arg.MaxRejections)
+	var dead bool
+	err := row.Scan(&dead)
+	return dead, err
+}
+
 const releaseOutbox = `-- name: ReleaseOutbox :exec
 UPDATE outbox
-SET locked_until = now() + interval '1 second'
+SET locked_until = now() + make_interval(secs => LEAST(60::float8, power(2::float8, LEAST(GREATEST(attempts - 1, 0), 6)))),
+    last_error = $2::text
 WHERE event_id = $1
   AND published_at IS NULL
 `
 
-func (q *Queries) ReleaseOutbox(ctx context.Context, eventID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, releaseOutbox, eventID)
+type ReleaseOutboxParams struct {
+	EventID   pgtype.UUID `json:"event_id"`
+	LastError string      `json:"last_error"`
+}
+
+// A failure that says nothing about the event itself (platform down, timeout,
+// 5xx, bad signature): try again later, with a delay that doubles up to a minute.
+func (q *Queries) ReleaseOutbox(ctx context.Context, arg ReleaseOutboxParams) error {
+	_, err := q.db.Exec(ctx, releaseOutbox, arg.EventID, arg.LastError)
 	return err
 }

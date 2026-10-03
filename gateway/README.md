@@ -31,3 +31,37 @@ When `PLATFORM_EVENTS_URL` is set, a publisher delivers those rows in sequence
 with `X-Signature = hex(HMAC_SHA256(GATEWAY_SIGNING_SECRET, timestamp + "." + body))`
 and retries after a non-2xx response.
 
+## When the platform refuses an event
+
+If the platform is down or unreachable, or returns a 5xx, a timeout or a 401, the
+gateway keeps the event and retries it with a delay that doubles from 1 second up
+to a minute. It never gives up on those, because they say nothing about the event
+itself (a wrong signing secret, for example, would otherwise throw the whole
+backlog away).
+
+If the platform looks at an event and refuses it (HTTP 400, 409, 413 or 422), the
+gateway counts a rejection. After `OUTBOX_MAX_REJECTIONS` of them (10 by default,
+about five minutes of backoff) it gives up: the event gets a `dead_at` timestamp
+and the reason in `last_error`, and one `gave up on gateway event` line is
+logged at ERROR. Events queued behind it in the same session are marked dead too,
+because the platform would only refuse them as out of order. Other sessions keep
+publishing.
+
+Nothing is deleted. To see what was given up on:
+
+```sql
+SELECT session_ref, sequence, event_type, rejections, last_error, dead_at
+FROM outbox WHERE dead_at IS NOT NULL ORDER BY session_ref, sequence;
+```
+
+Once the cause is fixed, put everything back in the queue and the gateway will
+deliver it in order:
+
+```sql
+UPDATE outbox
+SET dead_at = NULL, rejections = 0, last_error = NULL, locked_until = NULL
+WHERE dead_at IS NOT NULL;
+```
+
+Run these against the gateway database, for example with
+`docker compose exec gateway-db psql -U ev -d ev_gateway`.

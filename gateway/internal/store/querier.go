@@ -17,6 +17,9 @@ type Querier interface {
 	ClaimOutboxBatch(ctx context.Context, limit int32) ([]Outbox, error)
 	CompleteCommand(ctx context.Context, arg CompleteCommandParams) (int64, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	// Events behind a dead event in the same session can never be accepted in order,
+	// so they are dead too. Returns how many were swept.
+	DeadLetterBlockedOutbox(ctx context.Context) (int64, error)
 	FailSession(ctx context.Context, arg FailSessionParams) (int64, error)
 	GetCommand(ctx context.Context, commandID pgtype.UUID) (CommandInbox, error)
 	GetSession(ctx context.Context, sessionRef pgtype.UUID) (Session, error)
@@ -28,7 +31,12 @@ type Querier interface {
 	MarkOutboxPublished(ctx context.Context, eventID pgtype.UUID) (int64, error)
 	MarkSessionStopping(ctx context.Context, arg MarkSessionStoppingParams) (Session, error)
 	RecordMeterValue(ctx context.Context, arg RecordMeterValueParams) (Session, error)
-	ReleaseOutbox(ctx context.Context, eventID pgtype.UUID) error
+	// The platform refused this event. Count it, back off, and mark it dead once it
+	// has been refused max_rejections times. Returns whether the event is now dead.
+	RejectOutbox(ctx context.Context, arg RejectOutboxParams) (bool, error)
+	// A failure that says nothing about the event itself (platform down, timeout,
+	// 5xx, bad signature): try again later, with a delay that doubles up to a minute.
+	ReleaseOutbox(ctx context.Context, arg ReleaseOutboxParams) error
 	RestoreLimitSessionActive(ctx context.Context, arg RestoreLimitSessionActiveParams) (int64, error)
 	RestoreSessionActive(ctx context.Context, sessionRef pgtype.UUID) (int64, error)
 	StopSession(ctx context.Context, arg StopSessionParams) (Session, error)
