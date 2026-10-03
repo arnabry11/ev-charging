@@ -10,6 +10,7 @@ import (
 	"github.com/arnabry11/ev-charging/gateway/internal/auth"
 	"github.com/arnabry11/ev-charging/gateway/internal/httpapi"
 	"github.com/arnabry11/ev-charging/gateway/internal/ocppserver"
+	"github.com/arnabry11/ev-charging/gateway/internal/outbox"
 	"github.com/arnabry11/ev-charging/gateway/internal/registry"
 	"github.com/arnabry11/ev-charging/gateway/internal/session"
 	"github.com/arnabry11/ev-charging/gateway/internal/store"
@@ -49,6 +50,9 @@ func main() {
 	if err := sessions.Recover(ctx); err != nil {
 		logger.Error("recover sessions", "err", err)
 		os.Exit(1)
+	}
+	if url := os.Getenv("PLATFORM_EVENTS_URL"); url != "" {
+		go outbox.New(store.New(pool), url, requiredEnv("GATEWAY_SIGNING_SECRET"), logger).Run(context.Background())
 	}
 	ocpp.SetSessionHandler(sessions)
 	go ocpp.Start()
