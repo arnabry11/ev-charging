@@ -6,6 +6,10 @@ Rails.application.routes.draw do
   get "up" => "rails/health#show", as: :rails_health_check
   get "health" => "health#show"
   post "internal/v1/gateway-events" => "internal/v1/gateway_events#create"
+  get "internal/v1/chargers" => "internal/v1/chargers#index"
+  post "internal/v1/chargers" => "internal/v1/chargers#create"
+  get "internal/v1/drivers" => "internal/v1/drivers#index"
+  post "internal/v1/drivers" => "internal/v1/drivers#create"
 
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest

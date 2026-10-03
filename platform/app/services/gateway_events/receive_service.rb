@@ -1,6 +1,5 @@
 module GatewayEvents
   class ReceiveService
-    TENANT_ID = "00000000-0000-0000-0000-000000000001"
     EVENT_TYPES = %w[session.started session.meter_values session.stopped command.result].freeze
 
     def initialize(payload:)
@@ -53,7 +52,7 @@ module GatewayEvents
     def attributes
       {
         event_id:,
-        tenant_id: TENANT_ID,
+        tenant_id: Tenant::POC_ID,
         session_ref:,
         sequence:,
         event_type: payload.fetch("event_type"),
