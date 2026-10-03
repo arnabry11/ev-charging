@@ -19,6 +19,7 @@ Rails.application.routes.draw do
   root "admin/sessions#index"
   namespace :admin do
     get "live", to: "live#show"
+    get "live/stream", to: "live_streams#show", as: :live_stream
     resources :chargers, only: :index
     resources :sessions, only: %i[index show]
   end

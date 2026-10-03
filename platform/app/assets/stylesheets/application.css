@@ -100,6 +100,146 @@ p {
   font-size: 0.9rem;
 }
 
+.live-totals,
+section.live-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1.5rem;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.live-totals .stat {
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value small {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.stat-sub {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
+  gap: 1.75rem;
+  margin-top: 1.5rem;
+}
+
+.card {
+  margin: 0;
+  padding: 1.5rem;
+  border-top: 3px solid var(--border);
+}
+
+.card-live {
+  border-top-color: var(--accent);
+}
+
+.card-pending {
+  border-top-color: var(--warn);
+}
+
+.card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.state {
+  flex: none;
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.state-live {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.state-pending {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.meter {
+  height: 0.5rem;
+  margin-top: 1rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.8s ease;
+}
+
+.card-done .meter span {
+  background: var(--muted);
+}
+
+.meter-caption,
+.tax {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 section,
 article,
 table {
@@ -112,78 +252,6 @@ section,
 article {
   margin-top: 1rem;
   padding: 1rem 1.25rem;
-}
-
-.live-totals {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 1rem;
-  padding: 0;
-  background: none;
-  border: 0;
-}
-
-.live-totals p {
-  margin: 0;
-  padding: 1rem 1.25rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.live-totals span {
-  display: block;
-  color: var(--muted);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.live-totals strong {
-  font-size: 1.75rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.live-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.live-grid article {
-  margin: 0;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0.1rem 0.6rem;
-  border-radius: 999px;
-  background: var(--border);
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.badge-connected,
-.badge-available,
-.badge-charging {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.badge-preparing,
-.badge-starting,
-.badge-pending {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
-.badge-faulted,
-.badge-disconnected,
-.badge-failed {
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 table {
@@ -215,19 +283,6 @@ th {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-}
-
-svg.chart polyline {
-  stroke: var(--accent);
-}
-
-svg.chart {
-  display: block;
-  width: 100%;
-  height: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
 }
 
 ol {

@@ -1,0 +1,69 @@
+<section class="live-totals">
+  <div class="stat">
+    <span class="stat-label">Charging now</span>
+    <span class="stat-value"><%= board[:charging_count] %></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Energy delivered</span>
+    <span class="stat-value"><%= kwh_value(board[:delivered_wh]) %> <small>kWh</small></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Running amount</span>
+    <span class="stat-value"><%= paise_to_rupees(board[:running_paise]) %></span>
+  </div>
+</section>
+
+<% if board[:chargers].empty? %>
+  <p>No chargers yet.</p>
+<% else %>
+  <div class="live-grid">
+    <% board[:chargers].each do |row| %>
+      <% session = row[:session] %>
+      <% quote = row[:quote] %>
+      <% state = session_state(session) %>
+      <article class="card card-<%= state[:tone] %>">
+        <header>
+          <div>
+            <h2><%= row[:charger].name %></h2>
+            <p class="meta"><%= charger_meta(row) %></p>
+          </div>
+          <%= link_to_if session, state[:label], (admin_session_path(session) if session), class: "state state-#{state[:tone]}" do %>
+            <span class="state state-<%= state[:tone] %>"><%= state[:label] %></span>
+          <% end %>
+        </header>
+
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-label">Energy</span>
+            <% if quote %>
+              <span class="stat-value"><%= kwh_value(row[:delivered_wh]) %> <small>kWh</small></span>
+              <span class="stat-sub">of <%= wh_to_kwh(session.limit_energy_wh) %></span>
+            <% else %>
+              <span class="stat-value">—</span>
+              <span class="stat-sub"><%= empty_caption(session) %></span>
+            <% end %>
+          </div>
+          <div class="stat">
+            <span class="stat-label"><%= session&.state == "stopped" ? "Final amount" : "Amount so far" %></span>
+            <% if quote %>
+              <span class="stat-value"><%= paise_to_rupees(quote[:total_paise]) %></span>
+              <span class="stat-sub">of <%= paise_to_rupees(session.prepaid_paise) %> prepaid</span>
+            <% else %>
+              <span class="stat-value">—</span>
+              <span class="stat-sub"><%= empty_caption(session) %></span>
+            <% end %>
+          </div>
+        </div>
+
+        <div class="meter" role="progressbar" aria-label="Energy delivered of the session limit" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= row[:progress_percent] %>">
+          <span style="width: <%= row[:progress_percent] %>%"></span>
+        </div>
+        <p class="meter-caption"><%= row[:progress_percent] %>% of the limit</p>
+
+        <% if quote %>
+          <p class="tax">Taxable <%= paise_to_rupees(quote[:taxable_paise]) %> · CGST <%= paise_to_rupees(quote[:cgst_paise]) %> · SGST <%= paise_to_rupees(quote[:sgst_paise]) %></p>
+        <% end %>
+      </article>
+    <% end %>
+  </div>
+<% end %>
