@@ -29,6 +29,15 @@ services:
       gateway-db:
         condition: service_healthy
 
+  mock-upi:
+    build: ./mock-upi
+    environment:
+      PORT: "8082"
+      WEBHOOK_URL: http://platform:3000/internal/v1/upi-webhooks
+      WEBHOOK_SECRET: ${UPI_WEBHOOK_SECRET:-dev-upi-secret}
+    ports:
+      - "${MOCK_UPI_PORT:-8082}:8082"
+
   simulator:
     build: ./simulator
     environment:

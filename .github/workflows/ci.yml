@@ -68,6 +68,13 @@ jobs:
       - name: Test simulator image
         run: docker build --target build -t ev-simulator-test ./simulator
 
+  mock-upi-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test mock UPI image
+        run: docker build --target build -t ev-mock-upi-test ./mock-upi
+
   platform-test:
     runs-on: ubuntu-latest
     steps:

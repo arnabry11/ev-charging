@@ -86,7 +86,7 @@ Tax handling is a **simulation**, not tax advice. GST rate is configurable and d
 | `gateway/` | Go OCPP gateway |
 | `platform/` | Rails + Sidekiq business platform |
 | `simulator/` | Constant-power virtual OCPP charger |
-| `mock-upi/` | Mock payment provider (later) |
+| `mock-upi/` | Fake UPI provider with signed webhooks |
 | `contracts/` | Command and event schemas |
 | `docs/` | ADRs and design notes |
 
