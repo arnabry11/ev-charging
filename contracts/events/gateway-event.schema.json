@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/arnabry11/ev-charging/contracts/events/gateway-event.schema.json",
+  "title": "Gateway event envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "session_ref", "sequence", "occurred_at", "payload"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_type": {
+      "type": "string",
+      "enum": ["session.started", "session.meter_values", "session.stopped", "command.result"]
+    },
+    "session_ref": { "type": "string", "format": "uuid" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" }
+  }
+}

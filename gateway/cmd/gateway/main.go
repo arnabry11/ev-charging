@@ -45,7 +45,7 @@ func main() {
 		Registry:           reg,
 		Logger:             logger,
 	})
-	sessions := session.New(store.New(pool), reg, ocpp)
+	sessions := session.New(store.New(pool), reg, ocpp).WithUnitOfWork(session.NewTransactor(pool))
 	if err := sessions.Recover(ctx); err != nil {
 		logger.Error("recover sessions", "err", err)
 		os.Exit(1)

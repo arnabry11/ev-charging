@@ -83,6 +83,7 @@ type repository interface {
 	GetSessionByTransaction(context.Context, store.GetSessionByTransactionParams) (store.Session, error)
 	RecordMeterValue(context.Context, store.RecordMeterValueParams) (store.Session, error)
 	StopSession(context.Context, store.StopSessionParams) (store.Session, error)
+	AppendOutboxEvent(context.Context, store.AppendOutboxEventParams) (store.Outbox, error)
 }
 
 type chargerLookup interface {
@@ -96,6 +97,7 @@ type commander interface {
 
 type Engine struct {
 	repo     repository
+	work     unitOfWork
 	chargers chargerLookup
 	commands commander
 	now      func() time.Time
@@ -164,14 +166,14 @@ func (e *Engine) Start(ctx context.Context, request StartRequest) (Response, err
 
 	if err := validateStart(request); err != nil {
 		response = invalidResponse(err)
-		return e.finalizeCommand(workCtx, request.CommandID, claimToken, response, true)
+		return e.finalizeCommand(workCtx, request.CommandID, claimToken, request.SessionRef, CommandStart, response, true)
 	}
 	if request.ExpiresAt.IsZero() || !request.ExpiresAt.After(e.now()) {
 		if err := e.failPendingStart(workCtx, request, "expired"); err != nil {
 			return Response{}, err
 		}
 		response = invalidResponse(errors.New("command has expired"))
-		return e.finalizeCommand(workCtx, request.CommandID, claimToken, response, true)
+		return e.finalizeCommand(workCtx, request.CommandID, claimToken, request.SessionRef, CommandStart, response, true)
 	}
 
 	response, complete, err := e.startRecorded(workCtx, request, claimToken)
@@ -180,7 +182,7 @@ func (e *Engine) Start(ctx context.Context, request StartRequest) (Response, err
 	}
 	finalizeCtx, finalizeCancel := commandContext(workCtx)
 	defer finalizeCancel()
-	return e.finalizeCommand(finalizeCtx, request.CommandID, claimToken, response, complete)
+	return e.finalizeCommand(finalizeCtx, request.CommandID, claimToken, request.SessionRef, CommandStart, response, complete)
 }
 
 func (e *Engine) Stop(ctx context.Context, request StopRequest) (Response, error) {
@@ -203,7 +205,7 @@ func (e *Engine) Stop(ctx context.Context, request StopRequest) (Response, error
 
 	if request.SessionRef == uuid.Nil {
 		response = invalidResponse(errors.New("session_ref is required"))
-		return e.finalizeCommand(workCtx, request.CommandID, claimToken, response, true)
+		return e.finalizeCommand(workCtx, request.CommandID, claimToken, request.SessionRef, CommandStop, response, true)
 	}
 
 	response, complete, err := e.stopRecorded(workCtx, request, claimToken)
@@ -212,7 +214,7 @@ func (e *Engine) Stop(ctx context.Context, request StopRequest) (Response, error
 	}
 	finalizeCtx, finalizeCancel := commandContext(workCtx)
 	defer finalizeCancel()
-	return e.finalizeCommand(finalizeCtx, request.CommandID, claimToken, response, complete)
+	return e.finalizeCommand(finalizeCtx, request.CommandID, claimToken, request.SessionRef, CommandStop, response, complete)
 }
 
 func (e *Engine) reconcileStart(ctx context.Context, request StartRequest, claimToken uuid.UUID) (Response, error) {
@@ -220,7 +222,7 @@ func (e *Engine) reconcileStart(ctx context.Context, request StartRequest, claim
 	if err != nil {
 		return Response{}, err
 	}
-	return e.finalizeCommand(ctx, request.CommandID, claimToken, response, complete)
+	return e.finalizeCommand(ctx, request.CommandID, claimToken, request.SessionRef, CommandStart, response, complete)
 }
 
 func (e *Engine) reconcileStartResult(ctx context.Context, request StartRequest) (Response, bool, error) {
@@ -247,7 +249,7 @@ func (e *Engine) reconcileStop(ctx context.Context, request StopRequest, claimTo
 	if err != nil {
 		return Response{}, err
 	}
-	return e.finalizeCommand(ctx, request.CommandID, claimToken, response, complete)
+	return e.finalizeCommand(ctx, request.CommandID, claimToken, request.SessionRef, CommandStop, response, complete)
 }
 
 func (e *Engine) reconcileStopResult(ctx context.Context, request StopRequest) (Response, bool, error) {
@@ -278,18 +280,27 @@ func (e *Engine) Activate(ctx context.Context, chargerID string, connectorID int
 	if session.State == StateActive && session.OcppTransactionID.Valid {
 		return int(session.OcppTransactionID.Int32), nil
 	}
-	active, err := e.repo.ActivateSession(ctx, store.ActivateSessionParams{
-		SessionRef:   session.SessionRef,
-		MeterStartWh: pgtype.Int8{Int64: meterStartWh, Valid: true},
-		StartedAt:    pgtype.Timestamptz{Time: startedAt.UTC(), Valid: true},
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		active, err = e.repo.GetSessionForStart(ctx, store.GetSessionForStartParams{
-			ChargerID:   chargerID,
-			ConnectorID: int32(connectorID),
-			IDTag:       idTag,
+	var active store.Session
+	err = e.within(ctx, func(repo repository) error {
+		var activateErr error
+		active, activateErr = repo.ActivateSession(ctx, store.ActivateSessionParams{
+			SessionRef:   session.SessionRef,
+			MeterStartWh: pgtype.Int8{Int64: meterStartWh, Valid: true},
+			StartedAt:    pgtype.Timestamptz{Time: startedAt.UTC(), Valid: true},
 		})
-	}
+		if errors.Is(activateErr, pgx.ErrNoRows) {
+			active, activateErr = repo.GetSessionForStart(ctx, store.GetSessionForStartParams{
+				ChargerID:   chargerID,
+				ConnectorID: int32(connectorID),
+				IDTag:       idTag,
+			})
+			return activateErr
+		}
+		if activateErr != nil {
+			return activateErr
+		}
+		return appendOutboxEvent(ctx, repo, active.SessionRef, EventSessionStarted, sessionStartedPayload(active), startedAt)
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -302,76 +313,124 @@ func (e *Engine) Activate(ctx context.Context, chargerID string, connectorID int
 
 func (e *Engine) Meter(ctx context.Context, chargerID string, transactionID int, energyWh int64, recordedAt time.Time) error {
 	ocppTransactionID := pgtype.Int4{Int32: int32(transactionID), Valid: true}
-	current, err := e.repo.RecordMeterValue(ctx, store.RecordMeterValueParams{
-		ChargerID:         chargerID,
-		OcppTransactionID: ocppTransactionID,
-		LastEnergyWh:      pgtype.Int8{Int64: energyWh, Valid: true},
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		existing, getErr := e.repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
+	var limitStop *store.Session
+	err := e.within(ctx, func(repo repository) error {
+		current, err := repo.RecordMeterValue(ctx, store.RecordMeterValueParams{
 			ChargerID:         chargerID,
 			OcppTransactionID: ocppTransactionID,
+			LastEnergyWh:      pgtype.Int8{Int64: energyWh, Valid: true},
 		})
-		if getErr == nil && existing.LastEnergyWh.Valid && energyWh <= existing.LastEnergyWh.Int64 {
+		if errors.Is(err, pgx.ErrNoRows) {
+			existing, getErr := repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
+				ChargerID:         chargerID,
+				OcppTransactionID: ocppTransactionID,
+			})
+			if getErr == nil && existing.LastEnergyWh.Valid && energyWh <= existing.LastEnergyWh.Int64 {
+				return nil
+			}
+			if getErr != nil {
+				return getErr
+			}
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		if err := appendOutboxEvent(ctx, repo, current.SessionRef, EventMeterValues, meterValuesPayload(current, recordedAt), recordedAt); err != nil {
+			return err
+		}
+		if current.State != StateActive {
 			return nil
 		}
-		return err
-	}
-	if err != nil || current.State != StateActive {
-		return err
-	}
-
-	source := limitReached(current, energyWh, recordedAt)
-	if source == "" {
+		source := limitReached(current, energyWh, recordedAt)
+		if source == "" {
+			return nil
+		}
+		stopping, err := e.markLimitStop(ctx, repo, current, source)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		limitStop = &stopping
 		return nil
-	}
-	return e.requestLimitStop(ctx, current, source)
-}
-
-func (e *Engine) Finish(ctx context.Context, chargerID string, transactionID int, meterStopWh int64, stoppedAt time.Time, reason string) error {
-	current, err := e.repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
-		ChargerID:         chargerID,
-		OcppTransactionID: pgtype.Int4{Int32: int32(transactionID), Valid: true},
 	})
 	if err != nil {
 		return err
 	}
-	if current.State == StateStopped {
-		e.cancelDuration(current.SessionRef)
-		return nil
+	if limitStop != nil {
+		e.cancelDuration(limitStop.SessionRef)
+		go e.dispatchLimitStop(*limitStop)
 	}
-	_, err = e.repo.StopSession(ctx, store.StopSessionParams{
-		ChargerID:         chargerID,
-		OcppTransactionID: pgtype.Int4{Int32: int32(transactionID), Valid: true},
-		MeterStopWh:       pgtype.Int8{Int64: meterStopWh, Valid: true},
-		StoppedAt:         pgtype.Timestamptz{Time: stoppedAt.UTC(), Valid: true},
-		StopReason:        pgtype.Text{String: reason, Valid: reason != ""},
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		current, getErr := e.repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
-			ChargerID:         chargerID,
-			OcppTransactionID: pgtype.Int4{Int32: int32(transactionID), Valid: true},
-		})
-		if getErr != nil {
-			return getErr
-		}
-		if current.State == StateStopped {
-			e.cancelDuration(current.SessionRef)
-			return nil
-		}
-		return pgx.ErrNoRows
-	}
-	if err == nil {
-		e.cancelDuration(current.SessionRef)
-	}
-	return err
+	return nil
 }
 
-func (e *Engine) requestLimitStop(ctx context.Context, current store.Session, source string) error {
-	stopping, err := e.repo.MarkSessionStopping(ctx, store.MarkSessionStoppingParams{
+func (e *Engine) Finish(ctx context.Context, chargerID string, transactionID int, meterStopWh int64, stoppedAt time.Time, reason string) error {
+	transaction := pgtype.Int4{Int32: int32(transactionID), Valid: true}
+	var stoppedRef pgtype.UUID
+	err := e.within(ctx, func(repo repository) error {
+		current, err := repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
+			ChargerID:         chargerID,
+			OcppTransactionID: transaction,
+		})
+		if err != nil {
+			return err
+		}
+		if current.State == StateStopped {
+			stoppedRef = current.SessionRef
+			return nil
+		}
+		stopped, err := repo.StopSession(ctx, store.StopSessionParams{
+			ChargerID:         chargerID,
+			OcppTransactionID: transaction,
+			MeterStopWh:       pgtype.Int8{Int64: meterStopWh, Valid: true},
+			StoppedAt:         pgtype.Timestamptz{Time: stoppedAt.UTC(), Valid: true},
+			StopReason:        pgtype.Text{String: reason, Valid: reason != ""},
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			current, getErr := repo.GetSessionByTransaction(ctx, store.GetSessionByTransactionParams{
+				ChargerID:         chargerID,
+				OcppTransactionID: transaction,
+			})
+			if getErr != nil {
+				return getErr
+			}
+			if current.State == StateStopped {
+				stoppedRef = current.SessionRef
+				return nil
+			}
+			return pgx.ErrNoRows
+		}
+		if err != nil {
+			return err
+		}
+		stoppedRef = stopped.SessionRef
+		return appendOutboxEvent(ctx, repo, stopped.SessionRef, EventSessionStopped, sessionStoppedPayload(stopped), stoppedAt)
+	})
+	if err != nil {
+		return err
+	}
+	if stoppedRef.Valid {
+		e.cancelDuration(stoppedRef)
+	}
+	return nil
+}
+
+func (e *Engine) markLimitStop(ctx context.Context, repo repository, current store.Session, source string) (store.Session, error) {
+	return repo.MarkSessionStopping(ctx, store.MarkSessionStoppingParams{
 		SessionRef:    current.SessionRef,
 		StopSource:    pgtype.Text{String: source, Valid: true},
 		StopCommandID: pgtype.UUID{},
+	})
+}
+
+func (e *Engine) requestLimitStop(ctx context.Context, current store.Session, source string) error {
+	var stopping store.Session
+	err := e.within(ctx, func(repo repository) error {
+		var markErr error
+		stopping, markErr = e.markLimitStop(ctx, repo, current, source)
+		return markErr
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -705,7 +764,7 @@ func (e *Engine) recordCommand(ctx context.Context, id uuid.UUID, commandType st
 	return false, false, claimToken, Response{}, nil
 }
 
-func (e *Engine) finalizeCommand(ctx context.Context, id, claimToken uuid.UUID, response Response, complete bool) (Response, error) {
+func (e *Engine) finalizeCommand(ctx context.Context, id, claimToken, sessionRef uuid.UUID, commandType string, response Response, complete bool) (Response, error) {
 	if !complete {
 		return response, nil
 	}
@@ -713,11 +772,26 @@ func (e *Engine) finalizeCommand(ctx context.Context, id, claimToken uuid.UUID, 
 	if err != nil {
 		return Response{}, err
 	}
-	changed, err := e.repo.CompleteCommand(ctx, store.CompleteCommandParams{
-		CommandID:  uuidType(id),
-		Result:     raw,
-		HttpStatus: pgtype.Int4{Int32: int32(response.Status), Valid: true},
-		ClaimToken: uuidType(claimToken),
+	var changed int64
+	err = e.within(ctx, func(repo repository) error {
+		var completeErr error
+		changed, completeErr = repo.CompleteCommand(ctx, store.CompleteCommandParams{
+			CommandID:  uuidType(id),
+			Result:     raw,
+			HttpStatus: pgtype.Int4{Int32: int32(response.Status), Valid: true},
+			ClaimToken: uuidType(claimToken),
+		})
+		if completeErr != nil || changed != 1 {
+			return completeErr
+		}
+		return appendOutboxEvent(
+			ctx,
+			repo,
+			uuidType(sessionRef),
+			EventCommandResult,
+			commandResultPayload(id, commandType, response),
+			e.now(),
+		)
 	})
 	if err != nil {
 		return Response{}, err

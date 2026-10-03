@@ -52,6 +52,9 @@ func TestStartIsIdempotent(t *testing.T) {
 	if len(repo.sessions) != 1 {
 		t.Fatalf("sessions = %d", len(repo.sessions))
 	}
+	if len(repo.events) != 1 || repo.events[0].EventType != EventCommandResult {
+		t.Fatalf("events = %+v", repo.events)
+	}
 }
 
 func TestStartRejectsReusedCommandID(t *testing.T) {
@@ -615,6 +618,7 @@ func (f *fakeCommander) RemoteStop(_ context.Context, chargerID string, transact
 type fakeRepository struct {
 	commands            map[uuid.UUID]store.CommandInbox
 	sessions            map[uuid.UUID]store.Session
+	events              []store.Outbox
 	markDispatchErr     error
 	markDispatchCommits bool
 }
@@ -831,4 +835,15 @@ func (f *fakeRepository) StopSession(_ context.Context, arg store.StopSessionPar
 		}
 	}
 	return store.Session{}, pgx.ErrNoRows
+}
+
+func (f *fakeRepository) AppendOutboxEvent(_ context.Context, arg store.AppendOutboxEventParams) (store.Outbox, error) {
+	event := store.Outbox{
+		SessionRef: arg.SessionRef,
+		EventType:  arg.EventType,
+		Payload:    arg.Payload,
+		Sequence:   int64(len(f.events) + 1),
+	}
+	f.events = append(f.events, event)
+	return event, nil
 }
