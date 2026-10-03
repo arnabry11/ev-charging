@@ -1,3 +1,5 @@
+require "net/http"
+
 module Admin
   class GatewayCharger
     def fetch(ocpp_id)
