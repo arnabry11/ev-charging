@@ -21,6 +21,7 @@ platform/storage/
 platform/vendor/bundle/
 platform/.bundle/
 platform/node_modules/
+platform/config/master.key
 
 # Editors / local
 .idea/
