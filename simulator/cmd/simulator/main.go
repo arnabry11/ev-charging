@@ -57,6 +57,12 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("booted", "status", boot.Status, "heartbeat_s", boot.Interval)
+
+	if _, err := cp.StatusNotification(1, core.NoError, core.ChargePointStatusAvailable); err != nil {
+		logger.Error("StatusNotification", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("connector available", "charger_id", chargerID, "connector_id", 1)
 	close(ready)
 
 	interval := time.Duration(boot.Interval) * time.Second

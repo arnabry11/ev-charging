@@ -56,6 +56,18 @@ func TestBootAndHeartbeat(t *testing.T) {
 	if _, err := cp.Heartbeat(); err != nil {
 		t.Fatalf("heartbeat: %v", err)
 	}
+	reportedAt := time.Date(2026, time.October, 3, 7, 30, 0, 0, time.UTC)
+	if _, err := cp.StatusNotification(
+		1,
+		core.NoError,
+		core.ChargePointStatusAvailable,
+		func(request *core.StatusNotificationRequest) {
+			request.Timestamp = types.NewDateTime(reportedAt)
+			request.VendorId = "POCSim"
+		},
+	); err != nil {
+		t.Fatalf("status notification: %v", err)
+	}
 
 	got, ok := waitCharger(t, reg, "CHG-TEST")
 	if !ok {
@@ -66,6 +78,12 @@ func TestBootAndHeartbeat(t *testing.T) {
 	}
 	if got.Vendor != "POCSim" || got.Model != "ev-charging" {
 		t.Fatalf("boot fields = %+v", got)
+	}
+	if got.Connectors[1].Status != string(core.ChargePointStatusAvailable) {
+		t.Fatalf("connector = %+v", got.Connectors[1])
+	}
+	if !got.Connectors[1].UpdatedAt.Equal(reportedAt) || got.Connectors[1].VendorID != "POCSim" {
+		t.Fatalf("connector metadata = %+v", got.Connectors[1])
 	}
 }
 
