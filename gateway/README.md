@@ -27,4 +27,7 @@ not calculate prices.
 Session transitions and command completions append `session.started`,
 `session.meter_values`, `session.stopped`, and `command.result` rows to the
 outbox in the same database transaction. Each session has a gap-free sequence.
+When `PLATFORM_EVENTS_URL` is set, a publisher delivers those rows in sequence
+with `X-Signature = hex(HMAC_SHA256(GATEWAY_SIGNING_SECRET, timestamp + "." + body))`
+and retries after a non-2xx response.
 

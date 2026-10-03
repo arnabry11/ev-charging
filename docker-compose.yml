@@ -8,6 +8,8 @@ services:
       CHARGER_AUTH: ${CHARGER_AUTH:-CHG-MUM-0001:demo-password}
       DATABASE_URL: postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@gateway-db:5432/${GATEWAY_DB:-ev_gateway}?sslmode=disable
       PLATFORM_SIGNING_SECRET: ${PLATFORM_SIGNING_SECRET:-dev-platform-secret}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-dev-gateway-secret}
+      PLATFORM_EVENTS_URL: ${PLATFORM_EVENTS_URL:-}
     ports:
       - "${GATEWAY_HTTP_PORT:-8080}:8080"
       - "${GATEWAY_OCPP_PORT:-9000}:9000"

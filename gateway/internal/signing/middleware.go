@@ -71,6 +71,10 @@ func signature(secret []byte, timestamp string, body []byte) []byte {
 	return mac.Sum(nil)
 }
 
+func Sign(secret []byte, timestamp string, body []byte) string {
+	return hex.EncodeToString(signature(secret, timestamp, body))
+}
+
 func outsideWindow(sentAt, now time.Time, window time.Duration) bool {
 	delta := now.Sub(sentAt)
 	return delta < -window || delta > window
