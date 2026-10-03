@@ -45,6 +45,7 @@ The other CI scenarios are:
 ```bash
 ./scripts/payment-declined.sh
 ./scripts/event-order.sh
+./scripts/reconnect-session.sh
 ```
 
 ## Ownership rule
@@ -75,7 +76,7 @@ Two Postgres databases stay separate. The services talk only through a signed HT
 - Limit enforcement on the gateway
 - Outbox events with retries, per-session sequence numbers, and HMAC signatures
 - Prepaid card charge, idempotent replay, GST-snapshotted invoice, refund of unused prepaid
-- CI scenarios: declined card, duplicate charge, energy and duration limits, duplicated and reordered gateway events
+- CI scenarios: declined card, duplicate charge, energy and duration limits, charger reconnect, duplicated and reordered gateway events
 
 ## What is not built (yet)
 

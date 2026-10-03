@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,17 +26,22 @@ func main() {
 	gatewayURL := getenv("GATEWAY_URL", "ws://gateway:9000")
 	httpAddr := getenv("HTTP_ADDR", ":8081")
 
-	client := ws.NewClient()
-	client.SetBasicAuth(chargerID, password)
-	cp := ocpp16.NewChargePoint(chargerID, nil, client)
-	controller := charger.New(cp, charger.Config{
+	link := &station{
+		gatewayURL: gatewayURL,
+		chargerID:  chargerID,
+		password:   password,
+		logger:     logger,
+	}
+	cp := link.dial()
+	link.controller = charger.New(cp, charger.Config{
 		PowerW:                  getenvInt64("SIM_POWER_W", 7_200),
 		MeterStartWh:            getenvInt64("SIM_METER_START_WH", 100_000),
 		TickInterval:            time.Duration(getenvInt64("SIM_TICK_INTERVAL_MS", 1_000)) * time.Millisecond,
 		SimulatedSecondsPerTick: getenvInt64("SIM_SECONDS_PER_TICK", 60),
 		Logger:                  logger,
 	})
-	cp.SetCoreHandler(coreHandler{controller: controller})
+	cp.SetCoreHandler(coreHandler{controller: link.controller})
+	link.cp = cp
 
 	ready := make(chan struct{})
 	go func() {
@@ -48,6 +55,15 @@ func main() {
 				http.Error(w, `{"status":"starting"}`, http.StatusServiceUnavailable)
 			}
 		})
+		mux.HandleFunc("POST /control/reconnect", func(w http.ResponseWriter, _ *http.Request) {
+			if err := link.reconnect(); err != nil {
+				logger.Error("reconnect", "err", err)
+				http.Error(w, `{"status":"reconnect_failed"}`, http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "reconnected"})
+		})
 		if err := http.ListenAndServe(httpAddr, mux); err != nil {
 			logger.Error("simulator http stopped", "err", err)
 			os.Exit(1)
@@ -58,26 +74,15 @@ func main() {
 		logger.Error("connect to gateway", "err", err, "url", gatewayURL)
 		os.Exit(1)
 	}
-	defer cp.Stop()
+	defer link.stop()
 
-	boot, err := cp.BootNotification("POC-AC", "ev-charging-sim")
+	interval, err := link.boot(cp)
 	if err != nil {
-		logger.Error("BootNotification", "err", err)
-		os.Exit(1)
-	}
-	logger.Info("booted", "status", boot.Status, "heartbeat_s", boot.Interval)
-
-	if _, err := cp.StatusNotification(1, core.NoError, core.ChargePointStatusAvailable); err != nil {
-		logger.Error("StatusNotification", "err", err)
+		logger.Error("boot", "err", err)
 		os.Exit(1)
 	}
 	logger.Info("connector available", "charger_id", chargerID, "connector_id", 1)
 	close(ready)
-
-	interval := time.Duration(boot.Interval) * time.Second
-	if interval <= 0 {
-		interval = 10 * time.Second
-	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -90,13 +95,93 @@ func main() {
 			logger.Info("simulator stopping")
 			return
 		case <-ticker.C:
-			if _, err := cp.Heartbeat(); err != nil {
-				logger.Error("Heartbeat", "err", err)
-			} else {
-				logger.Info("heartbeat sent", "charger_id", chargerID)
-			}
+			link.heartbeat()
 		}
 	}
+}
+
+type station struct {
+	mu         sync.Mutex
+	busy       bool
+	cp         ocpp16.ChargePoint
+	controller *charger.Controller
+	gatewayURL string
+	chargerID  string
+	password   string
+	logger     *slog.Logger
+}
+
+func (s *station) dial() ocpp16.ChargePoint {
+	client := ws.NewClient()
+	client.SetBasicAuth(s.chargerID, s.password)
+	return ocpp16.NewChargePoint(s.chargerID, nil, client)
+}
+
+func (s *station) boot(cp ocpp16.ChargePoint) (time.Duration, error) {
+	confirmation, err := cp.BootNotification("POC-AC", "ev-charging-sim")
+	if err != nil {
+		return 0, err
+	}
+	s.logger.Info("booted", "status", confirmation.Status, "heartbeat_s", confirmation.Interval)
+	if _, err := cp.StatusNotification(1, core.NoError, s.controller.ConnectorStatus()); err != nil {
+		return 0, err
+	}
+	interval := time.Duration(confirmation.Interval) * time.Second
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	return interval, nil
+}
+
+func (s *station) reconnect() error {
+	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		return errors.New("reconnect already in progress")
+	}
+	s.busy = true
+	old := s.cp
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.busy = false
+		s.mu.Unlock()
+	}()
+
+	old.Stop()
+	cp := s.dial()
+	cp.SetCoreHandler(coreHandler{controller: s.controller})
+	if err := cp.Start(s.gatewayURL); err != nil {
+		return err
+	}
+	if _, err := s.boot(cp); err != nil {
+		cp.Stop()
+		return err
+	}
+	s.controller.Use(cp)
+	s.mu.Lock()
+	s.cp = cp
+	s.mu.Unlock()
+	s.logger.Info("reconnected", "charger_id", s.chargerID)
+	return nil
+}
+
+func (s *station) heartbeat() {
+	s.mu.Lock()
+	cp := s.cp
+	s.mu.Unlock()
+	if _, err := cp.Heartbeat(); err != nil {
+		s.logger.Error("Heartbeat", "err", err)
+		return
+	}
+	s.logger.Info("heartbeat sent", "charger_id", s.chargerID)
+}
+
+func (s *station) stop() {
+	s.mu.Lock()
+	cp := s.cp
+	s.mu.Unlock()
+	cp.Stop()
 }
 
 func getenv(key, fallback string) string {
