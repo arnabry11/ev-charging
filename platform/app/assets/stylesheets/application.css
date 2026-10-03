@@ -1,70 +1,260 @@
 /*
- * This is a manifest file that'll be compiled into application.css.
- *
- * With Propshaft, assets are served efficiently without preprocessing steps. You can still include
- * application-wide styles in this file, but keep in mind that CSS precedence will follow the standard
- * cascading order, meaning styles declared later in the document or manifest will override earlier ones,
- * depending on specificity.
- *
- * Consider organizing styles into separate files for maintainability.
+ * Admin styles. Propshaft serves this file as-is, so there is no preprocessing step.
  */
 
+:root {
+  --bg: #f5f5f4;
+  --surface: #ffffff;
+  --border: #e7e5e4;
+  --text: #1c1917;
+  --muted: #57534e;
+  --accent: #0f766e;
+  --accent-soft: #ccfbf1;
+  --warn-soft: #fef3c7;
+  --warn: #92400e;
+  --danger-soft: #fee2e2;
+  --danger: #991b1b;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  font-family: system-ui, sans-serif;
-  margin: 2rem;
-  color: #1c1917;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
 }
 
 nav {
   display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: 0.25rem;
+  align-items: center;
+  padding: 0 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
-table {
-  border-collapse: collapse;
-  width: 100%;
+nav::before {
+  content: "EV charging";
+  margin-right: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-th,
-td {
-  border-bottom: 1px solid #e7e5e4;
-  padding: 0.5rem 0.75rem;
-  text-align: left;
+nav a {
+  padding: 1rem 0.75rem;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-weight: 500;
+  text-decoration: none;
 }
 
-th {
-  font-size: 0.85rem;
-  color: #57534e;
+nav a:hover {
+  color: var(--text);
+}
+
+nav a[aria-current="page"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+main {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+}
+
+h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+p {
+  margin: 0.25rem 0 0.75rem;
 }
 
 .note {
-  color: #57534e;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+section,
+article,
+table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+section,
+article {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
 }
 
 .live-totals {
-  display: flex;
-  gap: 2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.live-totals p {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .live-totals span {
   display: block;
-  color: #57534e;
-  font-size: 0.85rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .live-totals strong {
-  font-size: 1.5rem;
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
-article {
-  margin-top: 2rem;
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.live-grid article {
+  margin: 0;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.badge-connected,
+.badge-available,
+.badge-charging {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge-preparing,
+.badge-starting,
+.badge-pending {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.badge-faulted,
+.badge-disconnected,
+.badge-failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+th,
+td {
+  padding: 0.65rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+tbody tr:hover {
+  background: var(--bg);
+}
+
+th {
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+svg.chart polyline {
+  stroke: var(--accent);
 }
 
 svg.chart {
+  display: block;
   width: 100%;
-  max-width: 40rem;
   height: auto;
-  background: #fafaf9;
-  border: 1px solid #e7e5e4;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+ol {
+  padding-left: 1.25rem;
+}
+
+ol li {
+  margin-bottom: 0.25rem;
+}
+
+time {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0a09;
+    --surface: #1c1917;
+    --border: #292524;
+    --text: #fafaf9;
+    --muted: #a8a29e;
+    --accent: #2dd4bf;
+    --accent-soft: #134e4a;
+    --warn-soft: #422006;
+    --warn: #fcd34d;
+    --danger-soft: #450a0a;
+    --danger: #fca5a5;
+  }
 }

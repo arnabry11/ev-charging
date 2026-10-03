@@ -14,10 +14,15 @@
 <% if @board[:chargers].empty? %>
   <p>No chargers yet.</p>
 <% else %>
+  <div class="live-grid">
   <% @board[:chargers].each do |row| %>
     <article>
       <h2><%= row[:charger].name %></h2>
-      <p><%= row[:charger].ocpp_id %> · <%= row[:connection_state] %> · <%= row[:connector_status] || "no connector status" %></p>
+      <p>
+        <%= row[:charger].ocpp_id %>
+        <span class="badge badge-<%= row[:connection_state].to_s.parameterize %>"><%= row[:connection_state] %></span>
+        <span class="badge badge-<%= row[:connector_status].to_s.parameterize %>"><%= row[:connector_status] || "no connector status" %></span>
+      </p>
       <% if row[:session] %>
         <p>
           <%= link_to row[:session].state, admin_session_path(row[:session]) %>
@@ -45,4 +50,5 @@
       <% end %>
     </article>
   <% end %>
+  </div>
 <% end %>
