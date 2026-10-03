@@ -17,6 +17,7 @@ module GatewayEvents
           result = ServiceResponse.error("sequence_gap", status: :conflict)
         else
           ProcessedGatewayEvent.create!(attributes)
+          PrepaidSessions::ApplyEvent.new(event: payload).call
           result = ServiceResponse.success({ status: "accepted" })
         end
       end

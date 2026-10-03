@@ -16,7 +16,7 @@ RSpec.describe "Prepaid card sessions", type: :request do
     expect(response).to have_http_status(:created)
     body = response.parsed_body["session"]
     expect(body).to include(
-      "state" => "paid",
+      "state" => "start_requested",
       "card_last4" => "4242",
       "prepaid_paise" => 1_432,
       "limit_energy_wh" => 240,

@@ -33,6 +33,12 @@ StartTransaction, MeterValues, and StopTransaction flow, then prints the
 authoritative start/stop meter readings from the gateway database and checks that
 `session.stopped` was delivered to the platform.
 
+Charge a card and let that prepaid amount stop the charger:
+
+```bash
+./scripts/prepay-session.sh
+```
+
 Later, `docker compose --profile demo up` will run a full prepaid session on fake data.
 
 ## Ownership rule
