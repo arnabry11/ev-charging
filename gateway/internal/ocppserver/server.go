@@ -3,7 +3,9 @@ package ocppserver
 import (
 	"context"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/arnabry11/ev-charging/gateway/internal/auth"
@@ -37,6 +39,7 @@ type Server struct {
 
 type sessionHandler interface {
 	Activate(context.Context, string, int, string, int64, time.Time) (int, error)
+	Meter(context.Context, string, int, int64, time.Time) error
 	Finish(context.Context, string, int, int64, time.Time, string) error
 }
 
@@ -182,6 +185,49 @@ func awaitCommand(ctx context.Context, result <-chan commandResult) (bool, error
 	}
 }
 
+func energyReading(request *core.MeterValuesRequest) (int64, time.Time, bool) {
+	var energyWh int64
+	var recordedAt time.Time
+	found := false
+	for _, meterValue := range request.MeterValue {
+		for _, sample := range meterValue.SampledValue {
+			value, ok := sampledEnergyWh(sample)
+			if !ok {
+				continue
+			}
+			timestamp := meterValue.Timestamp.Time
+			if !found || !timestamp.Before(recordedAt) {
+				energyWh = value
+				recordedAt = timestamp
+				found = true
+			}
+		}
+	}
+	return energyWh, recordedAt, found
+}
+
+func sampledEnergyWh(sample types.SampledValue) (int64, bool) {
+	if sample.Measurand != "" && sample.Measurand != types.MeasurandEnergyActiveImportRegister {
+		return 0, false
+	}
+
+	var multiplier float64
+	switch sample.Unit {
+	case "", types.UnitOfMeasureWh:
+		multiplier = 1
+	case types.UnitOfMeasureKWh:
+		multiplier = 1_000
+	default:
+		return 0, false
+	}
+
+	value, err := strconv.ParseFloat(sample.Value, 64)
+	if err != nil || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	return int64(math.Round(value * multiplier)), true
+}
+
 type coreHandler struct {
 	registry           *registry.Registry
 	sessions           sessionHandler
@@ -209,7 +255,23 @@ func (h *coreHandler) OnDataTransfer(_ string, _ *core.DataTransferRequest) (*co
 	return core.NewDataTransferConfirmation(core.DataTransferStatusRejected), nil
 }
 
-func (h *coreHandler) OnMeterValues(_ string, _ *core.MeterValuesRequest) (*core.MeterValuesConfirmation, error) {
+func (h *coreHandler) OnMeterValues(chargerID string, request *core.MeterValuesRequest) (*core.MeterValuesConfirmation, error) {
+	if h.sessions == nil || request.TransactionId == nil {
+		return core.NewMeterValuesConfirmation(), nil
+	}
+	energyWh, recordedAt, ok := energyReading(request)
+	if !ok {
+		return core.NewMeterValuesConfirmation(), nil
+	}
+	if err := h.sessions.Meter(
+		context.Background(),
+		chargerID,
+		*request.TransactionId,
+		energyWh,
+		recordedAt,
+	); err != nil {
+		return nil, err
+	}
 	return core.NewMeterValuesConfirmation(), nil
 }
 

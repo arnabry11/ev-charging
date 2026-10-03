@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/arnabry11/ev-charging/simulator/internal/charger"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/core"
 	"github.com/lorenzodonini/ocpp-go/ws"
@@ -25,7 +27,14 @@ func main() {
 	client := ws.NewClient()
 	client.SetBasicAuth(chargerID, password)
 	cp := ocpp16.NewChargePoint(chargerID, nil, client)
-	cp.SetCoreHandler(coreHandler{})
+	controller := charger.New(cp, charger.Config{
+		PowerW:                  getenvInt64("SIM_POWER_W", 7_200),
+		MeterStartWh:            getenvInt64("SIM_METER_START_WH", 100_000),
+		TickInterval:            time.Duration(getenvInt64("SIM_TICK_INTERVAL_MS", 1_000)) * time.Millisecond,
+		SimulatedSecondsPerTick: getenvInt64("SIM_SECONDS_PER_TICK", 60),
+		Logger:                  logger,
+	})
+	cp.SetCoreHandler(coreHandler{controller: controller})
 
 	ready := make(chan struct{})
 	go func() {
@@ -97,7 +106,21 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-type coreHandler struct{}
+func getenvInt64(key string, fallback int64) int64 {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+type coreHandler struct {
+	controller *charger.Controller
+}
 
 func (coreHandler) OnChangeAvailability(*core.ChangeAvailabilityRequest) (*core.ChangeAvailabilityConfirmation, error) {
 	return core.NewChangeAvailabilityConfirmation(core.AvailabilityStatusRejected), nil
@@ -114,11 +137,11 @@ func (coreHandler) OnDataTransfer(*core.DataTransferRequest) (*core.DataTransfer
 func (coreHandler) OnGetConfiguration(*core.GetConfigurationRequest) (*core.GetConfigurationConfirmation, error) {
 	return core.NewGetConfigurationConfirmation(nil), nil
 }
-func (coreHandler) OnRemoteStartTransaction(*core.RemoteStartTransactionRequest) (*core.RemoteStartTransactionConfirmation, error) {
-	return core.NewRemoteStartTransactionConfirmation(remoteStartRejected()), nil
+func (h coreHandler) OnRemoteStartTransaction(request *core.RemoteStartTransactionRequest) (*core.RemoteStartTransactionConfirmation, error) {
+	return core.NewRemoteStartTransactionConfirmation(h.controller.RemoteStart(request)), nil
 }
-func (coreHandler) OnRemoteStopTransaction(*core.RemoteStopTransactionRequest) (*core.RemoteStopTransactionConfirmation, error) {
-	return core.NewRemoteStopTransactionConfirmation(remoteStartRejected()), nil
+func (h coreHandler) OnRemoteStopTransaction(request *core.RemoteStopTransactionRequest) (*core.RemoteStopTransactionConfirmation, error) {
+	return core.NewRemoteStopTransactionConfirmation(h.controller.RemoteStop(request)), nil
 }
 func (coreHandler) OnReset(*core.ResetRequest) (*core.ResetConfirmation, error) {
 	return core.NewResetConfirmation(core.ResetStatusRejected), nil

@@ -26,6 +26,10 @@ jobs:
           echo "charger did not connect"
           docker compose logs gateway simulator
           exit 1
+      - name: Run gateway limit scenarios
+        run: |
+          ./scripts/demo-session.sh energy
+          ./scripts/demo-session.sh duration
       - if: failure()
         run: docker compose logs
       - if: always()
@@ -56,6 +60,13 @@ jobs:
           go test -race -p 1 ./internal/store ./internal/session
       - if: always()
         run: docker compose down -v
+
+  simulator-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test simulator image
+        run: docker build --target build -t ev-simulator-test ./simulator
 
   platform-test:
     runs-on: ubuntu-latest

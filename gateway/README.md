@@ -19,3 +19,8 @@ Commands require `X-Timestamp` (RFC3339) and
 `X-Signature = hex(HMAC_SHA256(PLATFORM_SIGNING_SECRET, timestamp + "." + raw_body))`.
 Each `command_id` is persisted and returns the original result when retried.
 
+During an active transaction, the gateway stores cumulative Wh readings and
+requests `RemoteStopTransaction` when either the command's energy or duration
+limit is reached. Limits are numeric inputs from the platform; the gateway does
+not calculate prices.
+

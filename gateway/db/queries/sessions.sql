@@ -17,6 +17,13 @@ SELECT *
 FROM sessions
 WHERE session_ref = $1;
 
+-- name: ListRecoverableSessions :many
+SELECT *
+FROM sessions
+WHERE state = 'active'
+   OR (state = 'stopping' AND stop_command_id IS NULL)
+ORDER BY started_at;
+
 -- name: GetSessionForStart :one
 SELECT *
 FROM sessions
@@ -58,6 +65,16 @@ SET state = 'active',
 WHERE session_ref = $1
   AND state = 'stopping';
 
+-- name: RestoreLimitSessionActive :execrows
+UPDATE sessions
+SET state = 'active',
+    stop_source = NULL,
+    updated_at = now()
+WHERE session_ref = $1
+  AND state = 'stopping'
+  AND stop_command_id IS NULL
+  AND stop_source = $2;
+
 -- name: FailSession :execrows
 UPDATE sessions
 SET state = 'failed',
@@ -72,6 +89,17 @@ FROM sessions
 WHERE charger_id = $1
   AND ocpp_transaction_id = $2;
 
+-- name: RecordMeterValue :one
+UPDATE sessions
+SET last_energy_wh = $3,
+    updated_at = now()
+WHERE charger_id = $1
+  AND ocpp_transaction_id = $2
+  AND state IN ('active', 'stopping')
+  AND $3 >= meter_start_wh
+  AND (last_energy_wh IS NULL OR $3 >= last_energy_wh)
+RETURNING *;
+
 -- name: StopSession :one
 UPDATE sessions
 SET state = 'stopped',
@@ -83,4 +111,5 @@ SET state = 'stopped',
 WHERE charger_id = $1
   AND ocpp_transaction_id = $2
   AND state IN ('active', 'stopping')
+  AND $3 >= COALESCE(last_energy_wh, meter_start_wh)
 RETURNING *;
