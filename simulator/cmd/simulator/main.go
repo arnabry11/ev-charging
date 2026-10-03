@@ -9,10 +9,12 @@ import (
 	"os/signal"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/arnabry11/ev-charging/simulator/internal/charger"
+	"github.com/arnabry11/ev-charging/simulator/internal/fleet"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/core"
 	"github.com/lorenzodonini/ocpp-go/ws"
@@ -21,82 +23,108 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	chargerID := getenv("CHARGER_ID", "CHG-MUM-0001")
+	baseID := getenv("CHARGER_ID", "CHG-MUM-0001")
 	password := getenv("CHARGER_PASSWORD", "demo-password")
 	gatewayURL := getenv("GATEWAY_URL", "ws://gateway:9000")
 	httpAddr := getenv("HTTP_ADDR", ":8081")
+	basePowerW := getenvInt64("SIM_POWER_W", 7_200)
 
-	link := &station{
-		gatewayURL: gatewayURL,
-		chargerID:  chargerID,
-		password:   password,
-		logger:     logger,
+	ids, err := fleet.ChargerIDs(baseID, int(getenvInt64("SIM_CHARGER_COUNT", 1)))
+	if err != nil {
+		logger.Error("charger ids", "err", err)
+		os.Exit(1)
 	}
-	cp := link.dial()
-	link.controller = charger.New(cp, charger.Config{
-		PowerW:                  getenvInt64("SIM_POWER_W", 7_200),
-		MeterStartWh:            getenvInt64("SIM_METER_START_WH", 100_000),
-		TickInterval:            time.Duration(getenvInt64("SIM_TICK_INTERVAL_MS", 1_000)) * time.Millisecond,
-		SimulatedSecondsPerTick: getenvInt64("SIM_SECONDS_PER_TICK", 60),
-		Logger:                  logger,
-	})
-	cp.SetCoreHandler(coreHandler{controller: link.controller})
-	link.cp = cp
+
+	stations := make(map[string]*station, len(ids))
+	for i, id := range ids {
+		link := &station{
+			gatewayURL: gatewayURL,
+			chargerID:  id,
+			password:   password,
+			logger:     logger.With("charger_id", id),
+		}
+		cp := link.dial()
+		link.controller = charger.New(cp, charger.Config{
+			PowerW:                  fleet.PowerW(basePowerW, i),
+			MeterStartWh:            getenvInt64("SIM_METER_START_WH", 100_000),
+			TickInterval:            time.Duration(getenvInt64("SIM_TICK_INTERVAL_MS", 1_000)) * time.Millisecond,
+			SimulatedSecondsPerTick: getenvInt64("SIM_SECONDS_PER_TICK", 10),
+			Logger:                  link.logger,
+		})
+		cp.SetCoreHandler(coreHandler{controller: link.controller})
+		link.cp = cp
+		stations[id] = link
+	}
 
 	ready := make(chan struct{})
-	go func() {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-			select {
-			case <-ready:
-				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "charger_id": chargerID})
-			default:
-				http.Error(w, `{"status":"starting"}`, http.StatusServiceUnavailable)
-			}
-		})
-		mux.HandleFunc("POST /control/reconnect", func(w http.ResponseWriter, _ *http.Request) {
-			if err := link.reconnect(); err != nil {
-				logger.Error("reconnect", "err", err)
-				http.Error(w, `{"status":"reconnect_failed"}`, http.StatusServiceUnavailable)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "reconnected"})
-		})
-		if err := http.ListenAndServe(httpAddr, mux); err != nil {
-			logger.Error("simulator http stopped", "err", err)
-			os.Exit(1)
-		}
-	}()
-
-	if err := cp.Start(gatewayURL); err != nil {
-		logger.Error("connect to gateway", "err", err, "url", gatewayURL)
-		os.Exit(1)
-	}
-	defer link.stop()
-
-	interval, err := link.boot(cp)
-	if err != nil {
-		logger.Error("boot", "err", err)
-		os.Exit(1)
-	}
-	logger.Info("connector available", "charger_id", chargerID, "connector_id", 1)
-	close(ready)
+	go serveHTTP(logger, httpAddr, ids, stations, ready)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-stop:
-			logger.Info("simulator stopping")
-			return
-		case <-ticker.C:
-			link.heartbeat()
+	done := make(chan struct{})
+	var running sync.WaitGroup
+	var booted sync.WaitGroup
+	failed := make(chan error, len(ids))
+	var startFailed atomic.Bool
+	for _, id := range ids {
+		link := stations[id]
+		booted.Add(1)
+		running.Add(1)
+		go func() {
+			defer running.Done()
+			link.run(&booted, failed, &startFailed, done)
+		}()
+	}
+	go func() {
+		booted.Wait()
+		if !startFailed.Load() {
+			close(ready)
 		}
+	}()
+
+	select {
+	case err := <-failed:
+		logger.Error("charger failed to start", "err", err)
+		os.Exit(1)
+	case <-stop:
+		logger.Info("simulator stopping")
+		close(done)
+		running.Wait()
+	}
+}
+
+func serveHTTP(logger *slog.Logger, addr string, ids []string, stations map[string]*station, ready <-chan struct{}) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case <-ready:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "charger_ids": ids})
+		default:
+			http.Error(w, `{"status":"starting"}`, http.StatusServiceUnavailable)
+		}
+	})
+	mux.HandleFunc("POST /control/reconnect", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("charger_id")
+		if id == "" {
+			id = ids[0]
+		}
+		link, ok := stations[id]
+		if !ok {
+			http.Error(w, `{"status":"unknown_charger"}`, http.StatusNotFound)
+			return
+		}
+		if err := link.reconnect(); err != nil {
+			logger.Error("reconnect", "charger_id", id, "err", err)
+			http.Error(w, `{"status":"reconnect_failed"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "reconnected", "charger_id": id})
+	})
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		logger.Error("simulator http stopped", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -109,6 +137,40 @@ type station struct {
 	chargerID  string
 	password   string
 	logger     *slog.Logger
+}
+
+// run connects, boots, and then sends heartbeats until done is closed.
+func (s *station) run(booted *sync.WaitGroup, failed chan<- error, startFailed *atomic.Bool, done <-chan struct{}) {
+	var once sync.Once
+	markBooted := func() { once.Do(booted.Done) }
+	defer markBooted()
+
+	if err := s.cp.Start(s.gatewayURL); err != nil {
+		startFailed.Store(true)
+		failed <- errors.Join(errors.New("connect to gateway "+s.chargerID), err)
+		return
+	}
+	defer s.stop()
+
+	interval, err := s.boot(s.cp)
+	if err != nil {
+		startFailed.Store(true)
+		failed <- errors.Join(errors.New("boot "+s.chargerID), err)
+		return
+	}
+	s.logger.Info("connector available", "connector_id", 1)
+	markBooted()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			s.heartbeat()
+		}
+	}
 }
 
 func (s *station) dial() ocpp16.ChargePoint {
