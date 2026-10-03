@@ -10,7 +10,7 @@ You only need Docker.
 
 | Surface | URL | What you see |
 | --- | --- | --- |
-| Live board | http://127.0.0.1:3000/admin/live | One card per charger: kWh delivered, the running rupee amount, and progress towards the session limit. A stopped session keeps its final numbers. Updates every second over server-sent events. |
+| Live board | http://127.0.0.1:3000/admin/live | One card per charger: kWh delivered, the running rupee amount, and progress towards the session limit. A stopped session keeps its final numbers. Above the cards, a fleet power chart shows total kW over the last 10 minutes, so you can see chargers starting and finishing. Updates every second over server-sent events. |
 | Live stream | http://127.0.0.1:3000/admin/live/stream | The same board as `text/event-stream`: one `board` event holding the rendered HTML whenever it changes. At most `LIVE_STREAM_MAX_CONNECTIONS` (8) streams at a time, because each holds a Puma thread. |
 | Admin | http://127.0.0.1:3000/admin/sessions | Prepaid sessions, and a session page with payment, invoice, refund, and gateway events. Amounts are in rupees. |
 | Receipt | http://127.0.0.1:3000/internal/v1/prepaid-sessions/{id}/invoice | HTML invoice after settlement. |
@@ -74,7 +74,7 @@ The seeded tariff is **1800 paise per kWh** plus a **1000 paise session fee**. B
 
 At that stop, energy costs 432 paise, the invoice total is 1432, and the refund is 0. A larger prepaid amount leaves a refund of the unused paise. The identity on every settled session is `prepaid = invoice total + refund`.
 
-The live board prices the **latest** meter register with the same formula, so the rupee figure moves during the charge. That number is a display estimate. The stored invoice is computed only from `meter_start_wh` and `meter_stop_wh` on `session.stopped`. Meter batches are never summed to make a price.
+The fleet power chart is derived from the stored meter readings with no extra storage: each reading's power is the energy since the previous reading divided by the time between them on the charger's own clock, summed across chargers in two-second buckets of receive time. The live board prices the **latest** meter register with the same formula, so the rupee figure moves during the charge. That number is a display estimate. The stored invoice is computed only from `meter_start_wh` and `meter_stop_wh` on `session.stopped`. Meter batches are never summed to make a price.
 
 GST defaults to 18% (`GST_RATE_PERCENT`) and is snapshotted onto the invoice. Tax is intra-state only: CGST and SGST, with an odd paisa placed on CGST. This is a simulation, not tax advice.
 

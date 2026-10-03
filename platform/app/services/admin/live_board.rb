@@ -18,7 +18,8 @@ module Admin
         chargers:,
         charging_count: charging.size,
         delivered_wh: charging.sum { |row| row[:delivered_wh].to_i },
-        running_paise: charging.sum { |row| row.dig(:quote, :total_paise).to_i }
+        running_paise: charging.sum { |row| row.dig(:quote, :total_paise).to_i },
+        fleet_power: FleetPower.new(tenant:).call
       })
     end
 

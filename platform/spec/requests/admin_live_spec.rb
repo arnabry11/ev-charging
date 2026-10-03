@@ -40,7 +40,7 @@ RSpec.describe "Admin live board", type: :request do
     expect(card_text(".tax")).to eq([ "Taxable ₹10.31 · CGST ₹0.93 · SGST ₹0.92" ])
     expect(response.body).to include('data-stream-url="/admin/live/stream"')
     expect(response.body).not_to include('http-equiv="refresh"')
-    expect(response.body).not_to include("<polyline")
+    expect(card.at_css("svg")).to be_nil
     expect(response.body).not_to include("4242424242424242")
   end
 
@@ -132,5 +132,43 @@ RSpec.describe "Admin live board", type: :request do
 
     expect(card_text(".state")).to eq([ "Starting" ])
     expect(card_text(".stat-sub")).to eq([ "Waiting for the session to start", "Waiting for the session to start" ])
+  end
+
+  describe "fleet power" do
+    let(:fleet_power) do
+      {
+        points: [ { at: Time.utc(2026, 10, 3, 11, 50), kw: 0.0 }, { at: Time.utc(2026, 10, 3, 11, 55), kw: 14.4 }, { at: Time.utc(2026, 10, 3, 12, 0), kw: 7.2 } ],
+        current_kw: 7.2,
+        peak_kw: 14.4,
+        window_s: 600
+      }
+    end
+
+    before do
+      charger
+      allow(Admin::FleetPower).to receive(:new).and_return(instance_double(Admin::FleetPower, call: fleet_power))
+    end
+
+    def fleet_card
+      Nokogiri::HTML.parse(response.body).at_css(".fleet-power")
+    end
+
+    it "shows the current and peak power with a chart of the last ten minutes" do
+      get "/admin/live"
+
+      expect(fleet_card.at_css("h2").text).to eq("Fleet power")
+      expect(fleet_card.css(".stat-value").map { |node| node.text.squish }).to eq([ "7.20 kW", "14.40 kW" ])
+      expect(fleet_card.css(".stat-label").map(&:text)).to eq([ "Now", "Peak" ])
+      expect(fleet_card.css(".axis").map(&:text)).to eq([ "20 kW", "10 kW", "0 kW", "10 min ago", "5 min ago", "now" ])
+      expect(fleet_card.at_css("polyline.power-line")["points"]).to be_present
+      expect(fleet_card.at_css("polygon.power-area")["points"]).to be_present
+    end
+
+    it "sits above the charger cards" do
+      get "/admin/live"
+
+      body = response.body
+      expect(body.index('class="fleet-power"')).to be < body.index('class="live-grid"')
+    end
   end
 end
