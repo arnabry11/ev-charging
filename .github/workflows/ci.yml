@@ -26,8 +26,10 @@ jobs:
           echo "charger did not connect"
           docker compose logs gateway simulator
           exit 1
-      - name: Run gateway limit scenarios
+      - name: Run session scenarios
         run: |
+          ./scripts/payment-declined.sh
+          ./scripts/event-order.sh
           ./scripts/demo-session.sh energy
           ./scripts/demo-session.sh duration
           ./scripts/prepay-session.sh
