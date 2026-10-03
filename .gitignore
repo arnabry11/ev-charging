@@ -1,0 +1,28 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+tmp/
+vendor/
+
+# Go
+gateway/bin/
+simulator/bin/
+mock-upi/bin/
+*.exe
+*.test
+coverage.out
+
+# Rails
+platform/log/
+platform/tmp/
+platform/storage/
+platform/vendor/bundle/
+platform/.bundle/
+platform/node_modules/
+
+# Editors / local
+.idea/
+.vscode/
+*.swp
