@@ -30,6 +30,7 @@ jobs:
         run: |
           ./scripts/demo-session.sh energy
           ./scripts/demo-session.sh duration
+          ./scripts/prepay-session.sh
       - if: failure()
         run: docker compose logs
       - if: always()

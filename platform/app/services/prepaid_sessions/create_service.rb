@@ -45,7 +45,8 @@ module PrepaidSessions
       return ServiceResponse.error("insufficient_prepaid") if limits.nil?
 
       session = create_session!(driver:, charger:, tariff:, last4: charge.payload.fetch(:last4), limits:)
-      ServiceResponse.success({ session: session.as_registry_json }, status: :created)
+      StartCommand.new.call(session)
+      ServiceResponse.success({ session: session.reload.as_registry_json }, status: :created)
     rescue ActiveRecord::RecordNotUnique
       replay(tenant.prepaid_sessions.find_by!(idempotency_key:))
     end
@@ -63,7 +64,8 @@ module PrepaidSessions
         existing.card_last4 == last4
       return ServiceResponse.error("idempotency_conflict", status: :conflict) unless same
 
-      ServiceResponse.success({ session: existing.as_registry_json })
+      StartCommand.new.call(existing) if %w[paid start_requested].include?(existing.state)
+      ServiceResponse.success({ session: existing.reload.as_registry_json })
     end
 
     def create_session!(driver:, charger:, tariff:, last4:, limits:)
