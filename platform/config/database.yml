@@ -9,6 +9,8 @@ development:
 
 test:
   <<: *default
+  # db:prepare seeds a newly created primary database. Keep the test database empty.
+  seeds: false
 
 production:
   <<: *default
