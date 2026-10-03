@@ -18,3 +18,23 @@ Charger ids are stored uppercase. Driver phones are stored as 10-digit Indian mo
 `GET` and `PUT /internal/v1/tariff` keep one active flat tariff. Prices are integer paise: the seeded tariff is 1800 paise per kWh plus a 1000 paise session fee. Development Compose loads `db/seeds.rb` after preparing the database.
 
 `POST /internal/v1/prepaid-sessions` charges a credit card in-process. A 16-digit number ending in `0002` is declined. The platform stores the last four digits only. An approved charge snapshots the tariff and stores the energy limit that amount can buy. When the session stops, Sidekiq writes one GST invoice and refunds the unused paise. `GET /internal/v1/prepaid-sessions/:id/invoice` is the HTML receipt.
+
+## Admin
+
+There's no login yet. All of these are open.
+
+- `/admin/live`: the live board, one card per charger plus a fleet power chart. `/admin/live/stream` is the same board as server-sent events, capped at `LIVE_STREAM_MAX_CONNECTIONS` open streams.
+- `/admin/sessions`: every prepaid session, with a detail page for payment, invoice, refund and gateway events.
+- `/admin/chargers`: the registered chargers.
+
+Amounts on these pages are in rupees. They are stored, and returned by the JSON API, as integer paise.
+
+## Tests
+
+Run RSpec against its own database, not the development one:
+
+```bash
+docker compose run --rm -e RAILS_ENV=test \
+  -e DATABASE_URL=postgres://ev:ev@platform-db:5432/ev_platform_test \
+  platform bundle exec rspec
+```
