@@ -74,3 +74,22 @@ if [[ "$delivered_wh" -ne "$expected_delivered_wh" ]]; then
   exit 1
 fi
 echo "Stopped: source=$stop_source delivered_wh=$delivered_wh meter_start_wh=$meter_start_wh meter_stop_wh=$meter_stop_wh"
+
+published=0
+for _ in {1..30}; do
+  published="$(docker compose exec -T gateway-db \
+    psql -U "${POSTGRES_USER:-ev}" -d "${GATEWAY_DB:-ev_gateway}" -At \
+    -c "SELECT count(*) FROM outbox WHERE session_ref = '$session_ref' AND event_type = 'session.stopped' AND published_at IS NOT NULL;")"
+  if [[ "$published" == "1" ]]; then
+    break
+  fi
+  sleep 1
+done
+received="$(docker compose exec -T platform-db \
+  psql -U "${POSTGRES_USER:-ev}" -d "${PLATFORM_DB:-ev_platform}" -At \
+  -c "SELECT count(*) FROM processed_gateway_events WHERE session_ref = '$session_ref' AND event_type = 'session.stopped';")"
+if [[ "$published" != "1" || "$received" != "1" ]]; then
+  echo "session.stopped was not delivered: published=${published:-0} received=${received:-0}" >&2
+  exit 1
+fi
+echo "Delivered session.stopped to the platform"

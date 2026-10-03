@@ -9,7 +9,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@gateway-db:5432/${GATEWAY_DB:-ev_gateway}?sslmode=disable
       PLATFORM_SIGNING_SECRET: ${PLATFORM_SIGNING_SECRET:-dev-platform-secret}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-dev-gateway-secret}
-      PLATFORM_EVENTS_URL: ${PLATFORM_EVENTS_URL:-}
+      PLATFORM_EVENTS_URL: ${PLATFORM_EVENTS_URL:-http://platform:3000/internal/v1/gateway-events}
     ports:
       - "${GATEWAY_HTTP_PORT:-8080}:8080"
       - "${GATEWAY_OCPP_PORT:-9000}:9000"
@@ -53,6 +53,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@platform-db:5432/${PLATFORM_DB:-ev_platform}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:-dev-insecure-secret-key-base-for-compose-only}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-dev-gateway-secret}
       PORT: "3000"
     ports:
       - "${PLATFORM_HTTP_PORT:-3000}:3000"
@@ -72,6 +73,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-ev}:${POSTGRES_PASSWORD:-ev}@platform-db:5432/${PLATFORM_DB:-ev_platform}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:-dev-insecure-secret-key-base-for-compose-only}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-dev-gateway-secret}
     depends_on:
       platform-db:
         condition: service_healthy
