@@ -31,7 +31,8 @@ RSpec.describe "Admin live board", type: :request do
     expect(response).to have_http_status(:ok)
     expect(card_text("h2")).to eq([ "Mumbai demo charger" ])
     expect(card_text(".state")).to eq([ "Charging" ])
-    expect(card_text(".meta > span")).to eq([ "CHG-MUM-0001", "Connected", "Connector Charging", "9876543210" ])
+    expect(card_text(".meta > span")).to eq([ "CHG-MUM-0001", "Connected", "Connector Charging" ])
+    expect(response.body).not_to include("9876543210")
     expect(card_text(".meta .link-state")).to eq([ "Connected" ])
     expect(card_text(".stat-label")).to eq([ "Energy", "Amount so far" ])
     expect(card_text(".stat-value")).to eq([ "0.12 kWh", "₹12.16" ])
@@ -122,7 +123,8 @@ RSpec.describe "Admin live board", type: :request do
     get "/admin/live"
 
     expect(card_text(".state")).to eq([ "Charging" ])
-    expect(card_text(".meta").first).to include("9123456780")
+    expect(card_text(".stat-value")).to eq([ "0.06 kWh", "₹11.08" ])
+    expect(response.body).not_to include("9123456780")
   end
 
   it "shows a charger waiting for its session to start" do

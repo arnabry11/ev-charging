@@ -20,8 +20,7 @@ module Admin
       [
         { text: row[:charger].ocpp_id },
         { text: state.capitalize, css: "link-state link-#{state.parameterize}" },
-        ({ text: "Connector #{row[:connector_status]}" } if row[:connector_status]),
-        ({ text: row[:session].driver.phone } if row[:session])
+        ({ text: "Connector #{row[:connector_status]}" } if row[:connector_status])
       ].compact
     end
 
