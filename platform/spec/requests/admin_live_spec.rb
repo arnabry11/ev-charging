@@ -31,7 +31,8 @@ RSpec.describe "Admin live board", type: :request do
     expect(response).to have_http_status(:ok)
     expect(card_text("h2")).to eq([ "Mumbai demo charger" ])
     expect(card_text(".state")).to eq([ "Charging" ])
-    expect(card_text(".meta")).to eq([ "CHG-MUM-0001 · connected · connector Charging · 9876543210" ])
+    expect(card_text(".meta > span")).to eq([ "CHG-MUM-0001", "Connected", "Connector Charging", "9876543210" ])
+    expect(card_text(".meta .link-state")).to eq([ "Connected" ])
     expect(card_text(".stat-label")).to eq([ "Energy", "Amount so far" ])
     expect(card_text(".stat-value")).to eq([ "0.12 kWh", "₹12.16" ])
     expect(card_text(".stat-sub")).to eq([ "of 0.24 kWh", "of ₹14.32 prepaid" ])
@@ -50,7 +51,7 @@ RSpec.describe "Admin live board", type: :request do
     get "/admin/live"
 
     expect(card_text(".state")).to eq([ "Idle" ])
-    expect(card_text(".meta")).to eq([ "CHG-MUM-0001 · unknown" ])
+    expect(card_text(".meta > span")).to eq([ "CHG-MUM-0001", "Unknown" ])
     expect(card_text(".stat-value")).to eq([ "—", "—" ])
     expect(card_text(".stat-sub")).to eq([ "No session yet", "No session yet" ])
     expect(card.at_css("[role=progressbar]")["aria-valuenow"]).to eq("0")

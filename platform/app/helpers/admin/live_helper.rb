@@ -11,9 +11,15 @@ module Admin
       SESSION_STATES.fetch(session&.state, IDLE_STATE)
     end
 
+    # Separate items rather than one joined string, so the card can space them apart.
     def charger_meta(row)
-      connector = ("connector #{row[:connector_status]}" if row[:connector_status])
-      [ row[:charger].ocpp_id, row[:connection_state], connector, row[:session]&.driver&.phone ].compact.join(" · ")
+      state = row[:connection_state]
+      [
+        { text: row[:charger].ocpp_id },
+        { text: state.capitalize, css: "link-state link-#{state.parameterize}" },
+        ({ text: "Connector #{row[:connector_status]}" } if row[:connector_status]),
+        ({ text: row[:session].driver.phone } if row[:session])
+      ].compact
     end
 
     def empty_caption(session)
