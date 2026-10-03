@@ -35,6 +35,9 @@ type Outbox struct {
 	PublishedAt pgtype.Timestamptz `json:"published_at"`
 	Attempts    int32              `json:"attempts"`
 	LockedUntil pgtype.Timestamptz `json:"locked_until"`
+	Rejections  int32              `json:"rejections"`
+	LastError   pgtype.Text        `json:"last_error"`
+	DeadAt      pgtype.Timestamptz `json:"dead_at"`
 }
 
 type Session struct {

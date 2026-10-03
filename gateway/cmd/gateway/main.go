@@ -52,7 +52,9 @@ func main() {
 		os.Exit(1)
 	}
 	if url := os.Getenv("PLATFORM_EVENTS_URL"); url != "" {
-		go outbox.New(store.New(pool), url, requiredEnv("GATEWAY_SIGNING_SECRET"), logger).Run(context.Background())
+		publisher := outbox.New(store.New(pool), url, requiredEnv("GATEWAY_SIGNING_SECRET"), logger)
+		publisher.SetMaxRejections(int32(envInt("OUTBOX_MAX_REJECTIONS", 10)))
+		go publisher.Run(context.Background())
 	}
 	ocpp.SetSessionHandler(sessions)
 	go ocpp.Start()
@@ -106,6 +108,14 @@ func heartbeatInterval() int {
 	n, err := strconv.Atoi(raw)
 	if err != nil || n <= 0 {
 		return 10
+	}
+	return n
+}
+
+func envInt(key string, fallback int) int {
+	n, err := strconv.Atoi(os.Getenv(key))
+	if err != nil || n <= 0 {
+		return fallback
 	}
 	return n
 }
