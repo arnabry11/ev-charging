@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/arnabry11/ev-charging/gateway/internal/registry"
 )
 
 func TestHealth(t *testing.T) {
@@ -12,7 +15,7 @@ func TestHealth(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
-	NewRouter().ServeHTTP(rec, req)
+	NewRouter(registry.New()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -24,5 +27,40 @@ func TestHealth(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Fatalf("status = %q, want %q", body["status"], "ok")
+	}
+}
+
+func TestShowCharger(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	reg.Booted("CHG-MUM-0001", "POCSim", "ev-charging", "0.1", 10)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/chargers/CHG-MUM-0001", nil)
+	rec := httptest.NewRecorder()
+	NewRouter(reg).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["connection_state"] != registry.StateConnected {
+		t.Fatalf("connection_state = %v", body["connection_state"])
+	}
+	if body["vendor"] != "POCSim" {
+		t.Fatalf("vendor = %v", body["vendor"])
+	}
+	if _, err := time.Parse(time.RFC3339, body["last_boot_at"].(string)); err != nil {
+		t.Fatalf("last_boot_at: %v", err)
+	}
+
+	missing := httptest.NewRequest(http.MethodGet, "/internal/v1/chargers/missing", nil)
+	missRec := httptest.NewRecorder()
+	NewRouter(reg).ServeHTTP(missRec, missing)
+	if missRec.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d", missRec.Code)
 	}
 }

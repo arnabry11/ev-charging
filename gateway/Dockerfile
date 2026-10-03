@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 go build -o /bin/gateway ./cmd/gateway
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates wget
 COPY --from=build /bin/gateway /usr/local/bin/gateway
-EXPOSE 8080
+EXPOSE 8080 9000
 USER nobody
 HEALTHCHECK --interval=5s --timeout=3s --retries=10 CMD wget -qO- http://127.0.0.1:8080/health || exit 1
 ENTRYPOINT ["/usr/local/bin/gateway"]

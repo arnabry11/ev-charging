@@ -15,7 +15,8 @@ docker compose up
 
 That builds the gateway and platform images, starts two Postgres databases and Redis, and waits until `/health` is up on both apps.
 
-- Gateway: http://127.0.0.1:8080/health
+- Gateway HTTP: http://127.0.0.1:8080/health
+- Gateway OCPP: `ws://127.0.0.1:9000/{charger_id}` (HTTP Basic auth; the client appends the charger ID)
 - Platform: http://127.0.0.1:3000/health
 
 Later, `docker compose --profile demo up` will run a full prepaid session on fake data.
