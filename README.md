@@ -30,7 +30,8 @@ Run an accelerated charging session that stops at a gateway-enforced limit:
 
 Each command signs a remote-start request, waits for the simulator's
 StartTransaction, MeterValues, and StopTransaction flow, then prints the
-authoritative start/stop meter readings from the gateway database.
+authoritative start/stop meter readings from the gateway database and checks that
+`session.stopped` was delivered to the platform.
 
 Later, `docker compose --profile demo up` will run a full prepaid session on fake data.
 

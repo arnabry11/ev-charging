@@ -135,7 +135,7 @@ func (q *Queries) MarkOutboxPublished(ctx context.Context, eventID pgtype.UUID) 
 
 const releaseOutbox = `-- name: ReleaseOutbox :exec
 UPDATE outbox
-SET locked_until = NULL
+SET locked_until = now() + interval '1 second'
 WHERE event_id = $1
   AND published_at IS NULL
 `

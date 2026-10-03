@@ -108,7 +108,7 @@ func (p *Publisher) publishOne(ctx context.Context, event store.Outbox) error {
 		return err
 	}
 	defer response.Body.Close()
-	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 180))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("platform returned %d: %s", response.StatusCode, responseBody)
 	}
