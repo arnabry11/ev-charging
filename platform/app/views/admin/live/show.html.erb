@@ -1,54 +1,17 @@
-<% content_for :head do %>
-  <meta http-equiv="refresh" content="2">
-<% end %>
 <% content_for(:title, "Live") %>
 <h1>Live</h1>
-<p class="note">Updates every 2 seconds. The running amount prices the latest meter reading with the session tariff. The invoice is issued when the session stops.</p>
+<p class="note">Updates as it happens over a server-sent event stream. The amount prices the latest meter reading with the session tariff. The invoice is issued when the session stops.</p>
 
-<section class="live-totals">
-  <p><span>Charging</span><strong><%= @board[:charging_count] %></strong></p>
-  <p><span>Energy now</span><strong><%= wh_to_kwh(@board[:delivered_wh]) %></strong></p>
-  <p><span>Running amount</span><strong><%= paise_to_rupees(@board[:running_paise]) %></strong></p>
-</section>
+<div id="live-board" data-stream-url="<%= admin_live_stream_path %>">
+  <%= render "admin/live/board", board: @board %>
+</div>
 
-<% if @board[:chargers].empty? %>
-  <p>No chargers yet.</p>
-<% else %>
-  <div class="live-grid">
-  <% @board[:chargers].each do |row| %>
-    <article>
-      <h2><%= row[:charger].name %></h2>
-      <p>
-        <%= row[:charger].ocpp_id %>
-        <span class="badge badge-<%= row[:connection_state].to_s.parameterize %>"><%= row[:connection_state] %></span>
-        <span class="badge badge-<%= row[:connector_status].to_s.parameterize %>"><%= row[:connector_status] || "no connector status" %></span>
-      </p>
-      <% if row[:session] %>
-        <p>
-          <%= link_to row[:session].state, admin_session_path(row[:session]) %>
-          · <%= row[:session].driver.phone %>
-          <% if row[:session].state == "charging" %>
-            · <%= wh_to_kwh(row[:delivered_wh]) %> of <%= wh_to_kwh(row[:session].limit_energy_wh) %>
-            · running <%= paise_to_rupees(row.dig(:quote, :total_paise)) %> of <%= paise_to_rupees(row[:session].prepaid_paise) %> prepaid
-          <% end %>
-        </p>
-        <% if row[:quote] %>
-          <p class="note">
-            Taxable <%= paise_to_rupees(row[:quote][:taxable_paise]) %>,
-            CGST <%= paise_to_rupees(row[:quote][:cgst_paise]) %>,
-            SGST <%= paise_to_rupees(row[:quote][:sgst_paise]) %>
-          </p>
-          <h3>Energy</h3>
-          <%= render "chart", points: row[:energy_series], label: "Energy delivered", caption: wh_to_kwh(row[:energy_series].last[:value]) %>
-          <h3>Running amount</h3>
-          <%= render "chart", points: row[:amount_series], label: "Running amount", caption: paise_to_rupees(row[:amount_series].last[:value]) %>
-        <% else %>
-          <p>Waiting for the session to start.</p>
-        <% end %>
-      <% else %>
-        <p>No live session.</p>
-      <% end %>
-    </article>
-  <% end %>
-  </div>
-<% end %>
+<script>
+  (function () {
+    var board = document.getElementById("live-board");
+    if (!board || !window.EventSource) return;
+    var source = new EventSource(board.dataset.streamUrl);
+    source.addEventListener("board", function (event) { board.innerHTML = event.data; });
+    window.addEventListener("pagehide", function () { source.close(); });
+  })();
+</script>

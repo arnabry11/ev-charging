@@ -10,7 +10,8 @@ You only need Docker.
 
 | Surface | URL | What you see |
 | --- | --- | --- |
-| Live board | http://127.0.0.1:3000/admin/live | Connected chargers, kWh so far, and a running rupee amount. Refreshes every 2 seconds. |
+| Live board | http://127.0.0.1:3000/admin/live | One card per charger: kWh delivered, the running rupee amount, and progress towards the session limit. A stopped session keeps its final numbers. Updates every second over server-sent events. |
+| Live stream | http://127.0.0.1:3000/admin/live/stream | The same board as `text/event-stream`: one `board` event holding the rendered HTML whenever it changes. At most `LIVE_STREAM_MAX_CONNECTIONS` (8) streams at a time, because each holds a Puma thread. |
 | Admin | http://127.0.0.1:3000/admin/sessions | Prepaid sessions, and a session page with payment, invoice, refund, and gateway events. |
 | Receipt | http://127.0.0.1:3000/internal/v1/prepaid-sessions/{id}/invoice | HTML invoice after settlement. |
 | Platform health | http://127.0.0.1:3000/health | Rails process is up. |
