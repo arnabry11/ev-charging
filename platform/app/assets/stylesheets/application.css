@@ -37,3 +37,34 @@ th {
   font-size: 0.85rem;
   color: #57534e;
 }
+
+.note {
+  color: #57534e;
+}
+
+.live-totals {
+  display: flex;
+  gap: 2rem;
+}
+
+.live-totals span {
+  display: block;
+  color: #57534e;
+  font-size: 0.85rem;
+}
+
+.live-totals strong {
+  font-size: 1.5rem;
+}
+
+article {
+  margin-top: 2rem;
+}
+
+svg.chart {
+  width: 100%;
+  max-width: 40rem;
+  height: auto;
+  background: #fafaf9;
+  border: 1px solid #e7e5e4;
+}

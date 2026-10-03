@@ -6,9 +6,11 @@
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
     <%= stylesheet_link_tag :app %>
+    <%= yield :head %>
   </head>
   <body>
     <nav>
+      <%= link_to "Live", admin_live_path %>
       <%= link_to "Sessions", admin_sessions_path %>
       <%= link_to "Chargers", admin_chargers_path %>
     </nav>

@@ -1,0 +1,5 @@
+<% coords = chart_coordinates(points) %>
+<svg class="chart" viewBox="0 0 640 180" role="img" aria-label="<%= label %>">
+  <polyline points="<%= coords %>" fill="none" stroke="#0f766e" stroke-width="2"></polyline>
+</svg>
+<p class="note"><%= caption %></p>
