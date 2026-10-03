@@ -13,6 +13,8 @@
   </div>
 </section>
 
+<%= render "admin/live/fleet_power", power: board[:fleet_power] %>
+
 <% if board[:chargers].empty? %>
   <p>No chargers yet.</p>
 <% else %>

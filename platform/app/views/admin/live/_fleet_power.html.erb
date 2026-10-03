@@ -1,0 +1,33 @@
+<% ceiling = power_axis_ceiling(power[:peak_kw]) %>
+<% chart = power_chart(power[:points], ceiling) %>
+<% plot = power_plot %>
+<% minutes = power[:window_s] / 60 %>
+<section class="fleet-power">
+  <header>
+    <div>
+      <h2>Fleet power</h2>
+      <p class="note">Total draw across all chargers over the last <%= minutes %> minutes.</p>
+    </div>
+    <div class="fleet-figures">
+      <div class="stat">
+        <span class="stat-label">Now</span>
+        <span class="stat-value"><%= format("%.2f", power[:current_kw]) %> <small>kW</small></span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Peak</span>
+        <span class="stat-value"><%= format("%.2f", power[:peak_kw]) %> <small>kW</small></span>
+      </div>
+    </div>
+  </header>
+  <svg class="power-chart" viewBox="0 0 <%= Admin::LiveHelper::POWER_CHART[:width] %> <%= Admin::LiveHelper::POWER_CHART[:height] %>" role="img" aria-label="Total fleet power over the last <%= minutes %> minutes">
+    <% power_gridlines(ceiling).each do |line| %>
+      <line class="grid" x1="<%= plot[:left] %>" y1="<%= line[:y] %>" x2="<%= plot[:right] %>" y2="<%= line[:y] %>"></line>
+      <text class="axis" x="<%= plot[:left] - 8 %>" y="<%= line[:y] + 4 %>" text-anchor="end"><%= line[:label] %></text>
+    <% end %>
+    <polygon class="power-area" points="<%= chart[:area] %>"></polygon>
+    <polyline class="power-line" points="<%= chart[:line] %>"></polyline>
+    <text class="axis" x="<%= plot[:left] %>" y="<%= plot[:bottom] + 20 %>" text-anchor="start"><%= minutes %> min ago</text>
+    <text class="axis" x="<%= (plot[:left] + plot[:right]) / 2 %>" y="<%= plot[:bottom] + 20 %>" text-anchor="middle"><%= minutes / 2 %> min ago</text>
+    <text class="axis" x="<%= plot[:right] %>" y="<%= plot[:bottom] + 20 %>" text-anchor="end">now</text>
+  </svg>
+</section>

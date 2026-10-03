@@ -151,6 +151,61 @@ section.live-totals {
   font-size: 0.85rem;
 }
 
+.fleet-power {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+}
+
+.fleet-power header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.fleet-power h2 {
+  margin: 0;
+}
+
+.fleet-power .note {
+  margin: 0.15rem 0 0;
+}
+
+.fleet-figures {
+  display: flex;
+  gap: 2.5rem;
+}
+
+.power-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 1rem;
+}
+
+.power-chart .grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.power-chart .axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.power-chart .power-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.power-chart .power-area {
+  fill: var(--accent);
+  opacity: 0.14;
+}
+
 .live-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
