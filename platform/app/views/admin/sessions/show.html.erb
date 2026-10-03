@@ -1,0 +1,51 @@
+<% content_for(:title, "Session") %>
+<p><%= link_to "Sessions", admin_sessions_path %></p>
+<h1><%= @session.state %></h1>
+
+<section>
+  <h2>Payment</h2>
+  <p>Card ending <%= @session.card_last4 %></p>
+  <p>Prepaid <%= @session.prepaid_paise %> paise</p>
+  <p>Phone <%= @session.driver.phone %></p>
+  <p>Charger <%= @session.charger.ocpp_id %></p>
+</section>
+
+<section>
+  <h2>Invoice</h2>
+  <% if @session.invoice %>
+    <p>Energy <%= @session.invoice.energy_wh %> Wh</p>
+    <p>Taxable <%= @session.invoice.taxable_paise %> paise</p>
+    <p>CGST <%= @session.invoice.cgst_paise %> paise</p>
+    <p>SGST <%= @session.invoice.sgst_paise %> paise</p>
+    <p>Total <%= @session.invoice.total_paise %> paise</p>
+    <p><%= link_to "Receipt", "/internal/v1/prepaid-sessions/#{@session.id}/invoice" %></p>
+  <% else %>
+    <p>No invoice yet.</p>
+  <% end %>
+</section>
+
+<section>
+  <h2>Refund</h2>
+  <% if @session.refund %>
+    <p><%= @session.refund.amount_paise %> paise</p>
+  <% else %>
+    <p>No refund yet.</p>
+  <% end %>
+</section>
+
+<section>
+  <h2>Events</h2>
+  <% if @events.empty? %>
+    <p>No gateway events yet.</p>
+  <% else %>
+    <ol>
+      <% @events.each do |event| %>
+        <li>
+          <span><%= event.sequence %></span>
+          <strong><%= event.event_type %></strong>
+          <time><%= event.occurred_at.utc.iso8601 %></time>
+        </li>
+      <% end %>
+    </ol>
+  <% end %>
+</section>

@@ -17,7 +17,7 @@
     <tbody>
       <% @sessions.each do |session| %>
         <tr>
-          <td><%= session.state %></td>
+          <td><%= link_to session.state, admin_session_path(session) %></td>
           <td><%= session.charger.ocpp_id %></td>
           <td><%= session.driver.phone %></td>
           <td><%= session.prepaid_paise %></td>

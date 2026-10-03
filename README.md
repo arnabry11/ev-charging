@@ -19,7 +19,8 @@ That builds the gateway, platform, and a virtual charger. The simulator connects
 - Gateway charger: http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001
 - Gateway OCPP: `ws://127.0.0.1:9000/{charger_id}` (HTTP Basic auth; the client appends the charger ID)
 - Simulator: http://127.0.0.1:8081/health
-- Platform: http://127.0.0.1:3000/health
+- Platform health: http://127.0.0.1:3000/health
+- Platform admin: http://127.0.0.1:3000/admin/sessions
 
 Run an accelerated charging session that stops at a gateway-enforced limit:
 
