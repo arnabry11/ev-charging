@@ -8,3 +8,32 @@
  *
  * Consider organizing styles into separate files for maintainability.
  */
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 2rem;
+  color: #1c1917;
+}
+
+nav {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e7e5e4;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+th {
+  font-size: 0.85rem;
+  color: #57534e;
+}

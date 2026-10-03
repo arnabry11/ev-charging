@@ -1,0 +1,30 @@
+<% content_for(:title, "Sessions") %>
+<h1>Sessions</h1>
+<% if @sessions.empty? %>
+  <p>No sessions yet.</p>
+<% else %>
+  <table>
+    <thead>
+      <tr>
+        <th>State</th>
+        <th>Charger</th>
+        <th>Phone</th>
+        <th>Prepaid paise</th>
+        <th>Invoice paise</th>
+        <th>Refund paise</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @sessions.each do |session| %>
+        <tr>
+          <td><%= session.state %></td>
+          <td><%= session.charger.ocpp_id %></td>
+          <td><%= session.driver.phone %></td>
+          <td><%= session.prepaid_paise %></td>
+          <td><%= session.invoice&.total_paise %></td>
+          <td><%= session.refund&.amount_paise %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
