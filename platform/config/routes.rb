@@ -12,6 +12,8 @@ Rails.application.routes.draw do
   post "internal/v1/drivers" => "internal/v1/drivers#create"
   get "internal/v1/tariff" => "internal/v1/tariffs#show"
   put "internal/v1/tariff" => "internal/v1/tariffs#update"
+  get "internal/v1/prepaid-sessions/:id" => "internal/v1/prepaid_sessions#show"
+  post "internal/v1/prepaid-sessions" => "internal/v1/prepaid_sessions#create"
 
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_101548) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_103841) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -32,6 +32,39 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_101548) do
     t.datetime "updated_at", null: false
     t.index ["tenant_id", "phone"], name: "index_drivers_on_tenant_id_and_phone", unique: true
     t.index ["tenant_id"], name: "index_drivers_on_tenant_id"
+  end
+
+  create_table "prepaid_sessions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "tenant_id", null: false
+    t.uuid "driver_id", null: false
+    t.uuid "charger_id", null: false
+    t.string "idempotency_key", null: false
+    t.string "state", null: false
+    t.bigint "prepaid_paise", null: false
+    t.bigint "energy_price_paise", null: false
+    t.bigint "session_fee_paise", null: false
+    t.bigint "limit_energy_wh"
+    t.integer "limit_duration_s"
+    t.uuid "command_id"
+    t.string "card_last4", null: false
+    t.bigint "meter_start_wh"
+    t.bigint "meter_stop_wh"
+    t.bigint "last_energy_wh"
+    t.datetime "started_at"
+    t.datetime "stopped_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["charger_id"], name: "index_prepaid_sessions_on_charger_id"
+    t.index ["command_id"], name: "index_prepaid_sessions_on_command_id", unique: true
+    t.index ["driver_id"], name: "index_prepaid_sessions_on_driver_id"
+    t.index ["tenant_id", "idempotency_key"], name: "index_prepaid_sessions_on_tenant_id_and_idempotency_key", unique: true
+    t.index ["tenant_id"], name: "index_prepaid_sessions_on_tenant_id"
+    t.check_constraint "card_last4::text ~ '^[0-9]{4}$'::text", name: "prepaid_sessions_card_last4"
+    t.check_constraint "energy_price_paise > 0", name: "prepaid_sessions_energy_price_positive"
+    t.check_constraint "prepaid_paise > 0", name: "prepaid_sessions_prepaid_positive"
+    t.check_constraint "session_fee_paise >= 0", name: "prepaid_sessions_session_fee_non_negative"
+    t.check_constraint "state::text = 'declined'::text OR limit_energy_wh > 0 AND limit_duration_s > 0", name: "prepaid_sessions_limits_when_accepted"
+    t.check_constraint "state::text = ANY (ARRAY['declined'::character varying, 'paid'::character varying, 'start_requested'::character varying, 'start_failed'::character varying, 'charging'::character varying, 'stopped'::character varying]::text[])", name: "prepaid_sessions_state"
   end
 
   create_table "processed_gateway_events", primary_key: "event_id", id: :uuid, default: nil, force: :cascade do |t|
@@ -68,5 +101,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_101548) do
 
   add_foreign_key "chargers", "tenants"
   add_foreign_key "drivers", "tenants"
+  add_foreign_key "prepaid_sessions", "chargers"
+  add_foreign_key "prepaid_sessions", "drivers"
+  add_foreign_key "prepaid_sessions", "tenants"
   add_foreign_key "tariffs", "tenants"
 end
