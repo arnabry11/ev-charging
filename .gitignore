@@ -9,6 +9,7 @@ vendor/
 # Go
 gateway/bin/
 simulator/bin/
+simulator/simulator
 mock-upi/bin/
 *.exe
 *.test
