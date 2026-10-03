@@ -1,0 +1,22 @@
+<% content_for(:title, "Chargers") %>
+<h1>Chargers</h1>
+<% if @chargers.empty? %>
+  <p>No chargers yet.</p>
+<% else %>
+  <table>
+    <thead>
+      <tr>
+        <th>OCPP id</th>
+        <th>Name</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @chargers.each do |charger| %>
+        <tr>
+          <td><%= charger.ocpp_id %></td>
+          <td><%= charger.name %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title><%= content_for(:title) || "EV charging" %></title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+    <%= stylesheet_link_tag :app %>
+  </head>
+  <body>
+    <nav>
+      <%= link_to "Sessions", admin_sessions_path %>
+      <%= link_to "Chargers", admin_chargers_path %>
+    </nav>
+    <main>
+      <%= yield %>
+    </main>
+  </body>
+</html>
