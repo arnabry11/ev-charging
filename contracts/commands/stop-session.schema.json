@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/arnabry11/ev-charging/contracts/commands/stop-session.schema.json",
+  "title": "Stop session command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command_id", "session_ref"],
+  "properties": {
+    "command_id": { "type": "string", "format": "uuid" },
+    "session_ref": { "type": "string", "format": "uuid" }
+  }
+}

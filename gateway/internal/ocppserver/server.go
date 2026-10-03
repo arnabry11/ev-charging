@@ -1,6 +1,7 @@
 package ocppserver
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -21,13 +22,22 @@ type Config struct {
 	HeartbeatIntervalS int
 	Auth               *auth.Store
 	Registry           *registry.Registry
+	Sessions           sessionHandler
 	Logger             *slog.Logger
+	CommandTimeout     time.Duration
 }
 
 type Server struct {
-	cs     ocpp16.CentralSystem
-	cfg    Config
-	logger *slog.Logger
+	cs         ocpp16.CentralSystem
+	cfg        Config
+	handler    *coreHandler
+	logger     *slog.Logger
+	dispatcher *commandDispatcher
+}
+
+type sessionHandler interface {
+	Activate(context.Context, string, int, string, int64, time.Time) (int, error)
+	Finish(context.Context, string, int, int64, time.Time, string) error
 }
 
 func New(cfg Config) *Server {
@@ -36,6 +46,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.HeartbeatIntervalS <= 0 {
 		cfg.HeartbeatIntervalS = 10
+	}
+	if cfg.CommandTimeout <= 0 {
+		cfg.CommandTimeout = 10 * time.Second
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -58,6 +71,7 @@ func New(cfg Config) *Server {
 	cs := ocpp16.NewCentralSystem(nil, wsServer)
 	handler := &coreHandler{
 		registry:           cfg.Registry,
+		sessions:           cfg.Sessions,
 		heartbeatIntervalS: cfg.HeartbeatIntervalS,
 		logger:             logger,
 	}
@@ -71,7 +85,17 @@ func New(cfg Config) *Server {
 		cfg.Registry.Disconnected(cp.ID())
 	})
 
-	return &Server{cs: cs, cfg: cfg, logger: logger}
+	return &Server{
+		cs:         cs,
+		cfg:        cfg,
+		handler:    handler,
+		logger:     logger,
+		dispatcher: newCommandDispatcher(),
+	}
+}
+
+func (s *Server) SetSessionHandler(handler sessionHandler) {
+	s.handler.sessions = handler
 }
 
 func (s *Server) Start() {
@@ -79,8 +103,88 @@ func (s *Server) Start() {
 	s.cs.Start(s.cfg.Port, s.cfg.Path)
 }
 
+func (s *Server) RemoteStart(ctx context.Context, chargerID string, connectorID int, idTag string, beforeSend func() error) (bool, error) {
+	return s.dispatcher.Do(ctx, chargerID, func() (bool, error) {
+		if err := beforeSend(); err != nil {
+			return false, err
+		}
+		return s.remoteStart(context.Background(), chargerID, connectorID, idTag)
+	})
+}
+
+func (s *Server) remoteStart(ctx context.Context, chargerID string, connectorID int, idTag string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.CommandTimeout)
+	defer cancel()
+
+	result := make(chan commandResult, 1)
+	err := s.cs.RemoteStartTransaction(
+		chargerID,
+		func(confirmation *core.RemoteStartTransactionConfirmation, err error) {
+			if err != nil {
+				result <- commandResult{err: err}
+				return
+			}
+			result <- commandResult{accepted: confirmation.Status == types.RemoteStartStopStatusAccepted}
+		},
+		idTag,
+		func(request *core.RemoteStartTransactionRequest) {
+			request.ConnectorId = &connectorID
+		},
+	)
+	if err != nil {
+		return false, err
+	}
+	return awaitCommand(ctx, result)
+}
+
+func (s *Server) RemoteStop(ctx context.Context, chargerID string, transactionID int, beforeSend func() error) (bool, error) {
+	return s.dispatcher.Do(ctx, chargerID, func() (bool, error) {
+		if err := beforeSend(); err != nil {
+			return false, err
+		}
+		return s.remoteStop(context.Background(), chargerID, transactionID)
+	})
+}
+
+func (s *Server) remoteStop(ctx context.Context, chargerID string, transactionID int) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.CommandTimeout)
+	defer cancel()
+
+	result := make(chan commandResult, 1)
+	err := s.cs.RemoteStopTransaction(
+		chargerID,
+		func(confirmation *core.RemoteStopTransactionConfirmation, err error) {
+			if err != nil {
+				result <- commandResult{err: err}
+				return
+			}
+			result <- commandResult{accepted: confirmation.Status == types.RemoteStartStopStatusAccepted}
+		},
+		transactionID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return awaitCommand(ctx, result)
+}
+
+type commandResult struct {
+	accepted bool
+	err      error
+}
+
+func awaitCommand(ctx context.Context, result <-chan commandResult) (bool, error) {
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case response := <-result:
+		return response.accepted, response.err
+	}
+}
+
 type coreHandler struct {
 	registry           *registry.Registry
+	sessions           sessionHandler
 	heartbeatIntervalS int
 	logger             *slog.Logger
 }
@@ -132,10 +236,40 @@ func (h *coreHandler) OnStatusNotification(chargerID string, request *core.Statu
 	return core.NewStatusNotificationConfirmation(), nil
 }
 
-func (h *coreHandler) OnStartTransaction(_ string, _ *core.StartTransactionRequest) (*core.StartTransactionConfirmation, error) {
-	return core.NewStartTransactionConfirmation(types.NewIdTagInfo(types.AuthorizationStatusInvalid), 0), nil
+func (h *coreHandler) OnStartTransaction(chargerID string, request *core.StartTransactionRequest) (*core.StartTransactionConfirmation, error) {
+	if h.sessions == nil {
+		return core.NewStartTransactionConfirmation(types.NewIdTagInfo(types.AuthorizationStatusInvalid), 0), nil
+	}
+	transactionID, err := h.sessions.Activate(
+		context.Background(),
+		chargerID,
+		request.ConnectorId,
+		request.IdTag,
+		int64(request.MeterStart),
+		request.Timestamp.Time,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return core.NewStartTransactionConfirmation(
+		types.NewIdTagInfo(types.AuthorizationStatusAccepted),
+		transactionID,
+	), nil
 }
 
-func (h *coreHandler) OnStopTransaction(_ string, _ *core.StopTransactionRequest) (*core.StopTransactionConfirmation, error) {
+func (h *coreHandler) OnStopTransaction(chargerID string, request *core.StopTransactionRequest) (*core.StopTransactionConfirmation, error) {
+	if h.sessions == nil {
+		return core.NewStopTransactionConfirmation(), nil
+	}
+	if err := h.sessions.Finish(
+		context.Background(),
+		chargerID,
+		request.TransactionId,
+		int64(request.MeterStop),
+		request.Timestamp.Time,
+		string(request.Reason),
+	); err != nil {
+		return nil, err
+	}
 	return core.NewStopTransactionConfirmation(), nil
 }

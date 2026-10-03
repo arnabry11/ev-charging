@@ -1,12 +1,17 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"time"
 
 	"github.com/arnabry11/ev-charging/gateway/internal/registry"
+	"github.com/arnabry11/ev-charging/gateway/internal/session"
+	"github.com/arnabry11/ev-charging/gateway/internal/signing"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -14,17 +19,86 @@ type chargerLookup interface {
 	Get(id string) (registry.Charger, bool)
 }
 
-func NewRouter(chargers chargerLookup) http.Handler {
+type commandService interface {
+	Start(context.Context, session.StartRequest) (session.Response, error)
+	Stop(context.Context, session.StopRequest) (session.Response, error)
+}
+
+type Dependencies struct {
+	Chargers      chargerLookup
+	Sessions      commandService
+	SigningSecret string
+}
+
+func NewRouter(deps Dependencies) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/health", health)
-	r.Get("/internal/v1/chargers/{chargerID}", showCharger(chargers))
+	r.Get("/internal/v1/chargers/{chargerID}", showCharger(deps.Chargers))
+	if deps.Sessions != nil {
+		r.Route("/internal/v1/commands", func(r chi.Router) {
+			r.Use(signing.New(deps.SigningSecret, 5*time.Minute).Verify)
+			r.Post("/start-session", startSession(deps.Sessions))
+			r.Post("/stop-session", stopSession(deps.Sessions))
+		})
+	}
 	return r
 }
 
 func health(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func startSession(sessions commandService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request session.StartRequest
+		if err := decodeJSON(r, &request); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_request", "detail": err.Error()})
+			return
+		}
+		response, err := sessions.Start(r.Context(), request)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, response.Status, response.Result)
+	}
+}
+
+func stopSession(sessions commandService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request session.StopRequest
+		if err := decodeJSON(r, &request); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_request", "detail": err.Error()})
+			return
+		}
+		response, err := sessions.Stop(r.Context(), request)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, response.Status, response.Result)
+	}
+}
+
+func decodeJSON(r *http.Request, target any) error {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("request body must contain one JSON object")
+		}
+		return err
+	}
+	return nil
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func showCharger(chargers chargerLookup) http.HandlerFunc {
@@ -35,8 +109,7 @@ func showCharger(chargers chargerLookup) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(chargerView(charger))
+		writeJSON(w, http.StatusOK, chargerView(charger))
 	}
 }
 

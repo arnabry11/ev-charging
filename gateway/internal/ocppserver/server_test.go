@@ -1,6 +1,7 @@
 package ocppserver_test
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"testing"
@@ -84,6 +85,14 @@ func TestBootAndHeartbeat(t *testing.T) {
 	}
 	if !got.Connectors[1].UpdatedAt.Equal(reportedAt) || got.Connectors[1].VendorID != "POCSim" {
 		t.Fatalf("connector metadata = %+v", got.Connectors[1])
+	}
+
+	accepted, err := srv.RemoteStart(context.Background(), "CHG-TEST", 1, "S-test", func() error { return nil })
+	if err != nil {
+		t.Fatalf("remote start: %v", err)
+	}
+	if accepted {
+		t.Fatal("expected stub charger to reject remote start")
 	}
 }
 
