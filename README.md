@@ -116,7 +116,7 @@ flowchart LR
     Apply --> Job[Enqueue settlement on session.stopped]
 ```
 
-Delivery is at-least-once, so everything is idempotent. Commands are keyed on `command_id` and events on `event_id`. A later sequence number is refused with a `409 sequence_gap` until the missing earlier one arrives, and the gateway keeps retrying. That's fine when the earlier event is just late. If the two databases get out of step, though (say you reset one volume and not the other), the gateway will keep retrying events for sessions the platform has never heard of, and you'll see a steady stream of `sequence_gap` errors in its log. `docker compose down -v` clears both databases.
+Delivery is at-least-once, so everything is idempotent. Commands are keyed on `command_id` and events on `event_id`. A later sequence number is refused with a `409 sequence_gap` until the missing earlier one arrives, and the gateway keeps retrying. The gateway backs off between tries, and if the platform refuses the same event `OUTBOX_MAX_REJECTIONS` times (10 by default) it gives up on that event and the ones queued behind it in the same session. That happens when the two databases get out of step, say you reset one volume and not the other. Outages and bad signatures never count towards giving up. The dead events stay in the `outbox` table and [can be requeued](gateway/README.md#when-the-platform-refuses-an-event).
 
 Both sides sign requests with HMAC and send `X-Timestamp` and `X-Signature`; a signature has to land within a five-minute window. The platform signs commands with `PLATFORM_SIGNING_SECRET` and the gateway signs events with `GATEWAY_SIGNING_SECRET`. The JSON schemas for both directions live in [`contracts/`](contracts/README.md).
 
@@ -141,6 +141,7 @@ These live in `.env` (copy `.env.example` to start):
 | `SIM_SECONDS_PER_TICK` | 10 | Each real second advances a charger by this many simulated seconds. At 10, a 7.2 kW charger delivers 20 Wh per second, so ₹100 (5 kWh) takes about four minutes. |
 | `LIVE_STREAM_MAX_CONNECTIONS` | 8 | Cap on open live board streams. |
 | `GST_RATE_PERCENT` | 18 | Snapshotted onto each invoice. |
+| `OUTBOX_MAX_REJECTIONS` | 10 | How many times the platform may refuse one gateway event before the gateway gives up on it. |
 
 If you already have a `.env` from an earlier version, refresh it from `.env.example`. An old `CHARGER_AUTH` that only lists one charger makes the other nine get a 401.
 
