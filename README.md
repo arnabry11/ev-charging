@@ -4,7 +4,7 @@ A portfolio slice of an EV charging stack. A Go gateway speaks OCPP 1.6J to a vi
 
 The point is the hard part of the system: a live charger session, a signed contract between the two services, and money that stays idempotent. It runs on a laptop. There is no real charger, no real payment network, and no real tax authority.
 
-**Open the [live board](http://127.0.0.1:3000/admin/live) while a session is running. Run [`./scripts/prepay-session.sh`](scripts/prepay-session.sh) for one prepaid charge that stops, invoices, and refunds.**
+**Open the [live board](http://127.0.0.1:3000/admin/live), then run [`./scripts/demo-fleet.sh`](scripts/demo-fleet.sh) to start ten prepaid sessions at once. Run [`./scripts/prepay-session.sh`](scripts/prepay-session.sh) for one prepaid charge that stops, invoices, and refunds.**
 
 You only need Docker.
 
@@ -15,10 +15,10 @@ You only need Docker.
 | Receipt | http://127.0.0.1:3000/internal/v1/prepaid-sessions/{id}/invoice | HTML invoice after settlement. |
 | Platform health | http://127.0.0.1:3000/health | Rails process is up. |
 | Gateway health | http://127.0.0.1:8080/health | Go process is up. |
-| Gateway charger | http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001 | Connection and connector status for the demo charger. |
+| Gateway charger | http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001 | Connection and connector status for a charger. The simulator runs `CHG-MUM-0001` to `CHG-MUM-0010`. |
 | Simulator health | http://127.0.0.1:8081/health | The virtual charger process is up. |
 
-OCPP connections use `ws://127.0.0.1:9000/{charger_id}` with HTTP Basic auth. The demo charger is `CHG-MUM-0001` / `demo-password`.
+OCPP connections use `ws://127.0.0.1:9000/{charger_id}` with HTTP Basic auth. The ten demo chargers are `CHG-MUM-0001` to `CHG-MUM-0010`, all with the password `demo-password`.
 
 ## Purpose
 
@@ -118,14 +118,20 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-The first build downloads images and compiles the Go and Rails apps. Wait until the demo charger is connected:
+The first build downloads images and compiles the Go and Rails apps. Wait until the demo chargers are connected:
 
 ```sh
 curl --fail --retry 30 --retry-all-errors --retry-delay 2 --silent --show-error \
   http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001
 ```
 
-`connection_state` should be `connected`. Then open http://127.0.0.1:3000/admin/live and, in another terminal, charge the demo card:
+`connection_state` should be `connected`. Then open http://127.0.0.1:3000/admin/live and, in another terminal, start a prepaid session on every charger:
+
+```sh
+./scripts/demo-fleet.sh
+```
+
+Ten chargers charge at the same time, at different power levels and with different prepaid amounts (₹60 to ₹150), so the board shows ten values moving and the sessions finish one after another over a few minutes. To charge one card and see the receipt, run:
 
 ```sh
 ./scripts/prepay-session.sh
@@ -133,7 +139,7 @@ curl --fail --retry 30 --retry-all-errors --retry-delay 2 --silent --show-error 
 
 The script posts a prepaid session for phone `9876543210` on `CHG-MUM-0001`, posts that same request again, and requires one session id. It waits until the virtual charger has delivered **240 Wh**, then waits until the receipt shows **1432** paise and a **0** refund. The live board updates while that session is charging. After it stops, the session page links to the receipt.
 
-The simulator is a constant **7.2 kW** charger. Each wall-clock second stands for **60** simulated seconds, so each tick is **120 Wh**. A 240 Wh charge is a few seconds.
+The simulator runs `SIM_CHARGER_COUNT` chargers (default 10) in one process. `CHG-MUM-0001` is a constant **7.2 kW** charger. The others run at 50%, 150%, 300% and 75% of that, repeating. Each wall-clock second stands for **10** simulated seconds (`SIM_SECONDS_PER_TICK`), so a 7.2 kW charger delivers **20 Wh** per second. A 240 Wh charge takes about 12 seconds, and ₹100 buys 5 kWh, which takes about four minutes.
 
 Stop the stack with `docker compose down`. Add `-v` to drop the databases too.
 
@@ -158,12 +164,12 @@ These are the checks CI runs against Compose. Each exits non-zero if the outcome
 | --- | --- |
 | [`gateway/`](gateway/README.md) | OCPP central system, session and command state, limit enforcement, transactional outbox. |
 | [`platform/`](platform/README.md) | Registry, tariff, card charge, prepaid sessions, settlement, admin, live board, receipt. |
-| [`simulator/`](simulator/README.md) | One virtual charger. `POST /control/reconnect` drops the socket and boots again. |
+| [`simulator/`](simulator/README.md) | Ten virtual chargers in one process. `POST /control/reconnect?charger_id=` drops that socket and boots again. |
 | [`contracts/`](contracts/README.md) | Command and event JSON schemas shared by both sides. |
 | [`scripts/`](scripts) | The demo and the CI scenarios above. |
 | [`docs/adr/`](docs/adr/001-ownership-split.md) | Why device state and money are split. |
 
-The POC tenant id is `00000000-0000-0000-0000-000000000001`. Development Compose seeds that tenant, the Mumbai charger, the demo driver, and the flat tariff. `mock-upi/` is an empty reserved directory. Card charges stay inside the platform.
+The POC tenant id is `00000000-0000-0000-0000-000000000001`. Development Compose seeds that tenant, the ten Mumbai chargers, the demo driver, and the flat tariff. `mock-upi/` is an empty reserved directory. Card charges stay inside the platform.
 
 ## Limits of this slice
 
