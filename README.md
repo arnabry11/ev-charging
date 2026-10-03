@@ -1,110 +1,178 @@
-# EV Charging Platform (POC)
+# EV Charging Platform
 
-A portfolio project for the hard core of an EV charging stack: a Go OCPP 1.6J gateway that talks to chargers, and a Rails + Sidekiq platform that owns prepaid sessions, refunds, and GST invoices. Everything runs on a laptop with a charger simulator and an in-process card charge. No real hardware, no real payments, no real tax authority.
+A portfolio slice of an EV charging stack. A Go gateway speaks OCPP 1.6J to a virtual charger. A Rails platform takes a prepaid card charge, tells the gateway when to stop, and writes a GST invoice and refund from the start and stop meter readings.
 
-This repository is a **thin vertical slice**. The goal is to prove the risky parts (OCPP sessions, the signed Go-to-Rails contract, and idempotent money), then stop and decide whether to continue.
+The point is the hard part of the system: a live charger session, a signed contract between the two services, and money that stays idempotent. It runs on a laptop. There is no real charger, no real payment network, and no real tax authority.
 
-**You only need Docker.** Do not install Go, Ruby, or Postgres on the host.
+**Open the [live board](http://127.0.0.1:3000/admin/live) while a session is running. Run [`./scripts/prepay-session.sh`](scripts/prepay-session.sh) for one prepaid charge that stops, invoices, and refunds.**
 
-## Run
+You only need Docker.
 
-```bash
-cp .env.example .env
-docker compose up
-```
+| Surface | URL | What you see |
+| --- | --- | --- |
+| Live board | http://127.0.0.1:3000/admin/live | Connected chargers, kWh so far, and a running rupee amount. Refreshes every 2 seconds. |
+| Admin | http://127.0.0.1:3000/admin/sessions | Prepaid sessions, and a session page with payment, invoice, refund, and gateway events. |
+| Receipt | http://127.0.0.1:3000/internal/v1/prepaid-sessions/{id}/invoice | HTML invoice after settlement. |
+| Platform health | http://127.0.0.1:3000/health | Rails process is up. |
+| Gateway health | http://127.0.0.1:8080/health | Go process is up. |
+| Gateway charger | http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001 | Connection and connector status for the demo charger. |
+| Simulator health | http://127.0.0.1:8081/health | The virtual charger process is up. |
 
-That builds the gateway, platform, and a virtual charger. The simulator connects over OCPP, boots, and heartbeats.
+OCPP connections use `ws://127.0.0.1:9000/{charger_id}` with HTTP Basic auth. The demo charger is `CHG-MUM-0001` / `demo-password`.
 
-- Gateway HTTP: http://127.0.0.1:8080/health
-- Gateway charger: http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001
-- Gateway OCPP: `ws://127.0.0.1:9000/{charger_id}` (HTTP Basic auth; the client appends the charger ID)
-- Simulator: http://127.0.0.1:8081/health
-- Platform health: http://127.0.0.1:3000/health
-- Platform admin: http://127.0.0.1:3000/admin/sessions
-- Platform live board: http://127.0.0.1:3000/admin/live
+## Purpose
 
-Run an accelerated charging session that stops at a gateway-enforced limit:
+An EV charging backend has two kinds of work that fail differently.
 
-```bash
-./scripts/demo-session.sh energy
-./scripts/demo-session.sh duration
-```
+Chargers hold a WebSocket open and send a stream of boot, heartbeat, start, meter, and stop messages. That state is only true "right now." Billing has to charge a card once, refuse a repeated request, and produce one invoice whose paise add up.
 
-Each command signs a remote-start request, waits for the simulator's
-StartTransaction, MeterValues, and StopTransaction flow, then prints the
-authoritative start/stop meter readings from the gateway database and checks that
-`session.stopped` was delivered to the platform.
-
-Charge a card and let that prepaid amount stop the charger. The same request is sent twice and must come back as one session:
-
-```bash
-./scripts/prepay-session.sh
-```
-
-The other CI scenarios are:
-
-```bash
-./scripts/payment-declined.sh
-./scripts/event-order.sh
-./scripts/reconnect-session.sh
-```
-
-## Ownership rule
-
-**Go owns live device state. Rails owns everything involving money.**
-
-The gateway never calculates prices. It only enforces numeric limits (`max_energy_wh`, `max_duration_s`) that the platform computed from the prepaid amount. Final price always comes from `meter_start_wh` and `meter_stop_wh` on `session.stopped`, never from summing live meter batches. The platform's seeded flat tariff is 1800 paise per kWh plus a 1000 paise session fee.
+This repository keeps those jobs apart and connects them with a small signed HTTP contract. The gateway stops the charger when a numeric limit is reached. The platform decides the limit from the prepaid amount, and prices the session only when it stops.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    Visitor[Browser or script] --> Platform[Rails platform]
+    Visitor --> Live[Live board]
+    Platform -->|signed start command| Gateway[Go gateway]
+    Gateway -->|OCPP 1.6J WebSocket| Simulator[Virtual charger]
+    Simulator -->|Start, MeterValues, Stop| Gateway
+    Gateway -->|signed outbox events| Platform
+    Platform --> Worker[Sidekiq]
+    Worker --> Receipt[Invoice and refund]
+    Live --> Platform
+    Live --> Gateway
 ```
-Driver / CLI ──► Platform (Rails + Sidekiq)
-                      │
-                      │ signed HTTP commands (command_id)
-                      ▼
-                 Gateway (Go) ── OCPP 1.6J WS ──► Simulator
-                      │
-                      │ signed outbox events
-                      ▼
-                 Platform event receiver ──► SettleSessionJob
+
+Two Postgres databases stay separate. Redis is only the Sidekiq queue. The services do not share tables.
+
+The ownership rule is in [ADR 001](docs/adr/001-ownership-split.md):
+
+- The **gateway** owns connections, connector status, the OCPP transaction, meter readings, and enforcement of `max_energy_wh` and `max_duration_s`.
+- The **platform** owns drivers, chargers, the tariff, the card charge, prepaid session state, GST, invoices, and refunds.
+- The gateway does not calculate a price. The platform does not speak OCPP.
+
+### How a prepaid charge becomes an invoice
+
+```mermaid
+flowchart TD
+    Card[In-process card charge] --> Snapshot[Snapshot the flat tariff and compute Wh and duration limits]
+    Snapshot --> Command[Signed start-session command]
+    Command --> RemoteStart[Gateway sends RemoteStart]
+    RemoteStart --> Meters[Simulator reports MeterValues in Wh]
+    Meters --> Limit{Energy or duration limit reached?}
+    Limit -->|Yes| RemoteStop[Gateway sends RemoteStop]
+    RemoteStop --> Stopped["session.stopped carries meter_start_wh and meter_stop_wh"]
+    Stopped --> Settle[SettleSessionJob]
+    Settle --> Invoice[One GST invoice and one refund]
 ```
 
-Two Postgres databases stay separate. The services talk only through a signed HTTP contract.
+The seeded tariff is **1800 paise per kWh** plus a **1000 paise session fee**. Both numbers are GST-inclusive. The demo charge is **1432 paise**, which buys exactly **240 Wh**:
 
-## What this POC will demonstrate
+`(1432 - 1000) * 1000 / 1800 = 240`
 
-- OCPP 1.6J session flow: boot, heartbeat, start, meter values, stop, remote start/stop
-- Limit enforcement on the gateway
-- Outbox events with retries, per-session sequence numbers, and HMAC signatures
-- Prepaid card charge, idempotent replay, GST-snapshotted invoice, refund of unused prepaid
-- CI scenarios: declined card, duplicate charge, energy and duration limits, charger reconnect, duplicated and reordered gateway events
+At that stop, energy costs 432 paise, the invoice total is 1432, and the refund is 0. A larger prepaid amount leaves a refund of the unused paise. The identity on every settled session is `prepaid = invoice total + refund`.
 
-## What is not built (yet)
+The live board prices the **latest** meter register with the same formula, so the rupee figure moves during the charge. That number is a display estimate. The stored invoice is computed only from `meter_start_wh` and `meter_stop_wh` on `session.stopped`. Meter batches are never summed to make a price.
 
-- Multi-tenancy UI and RBAC (columns exist; one tenant runs)
-- Time-of-use, per-minute, and idle fees
-- Virtual charger panel UI (CLI / scenarios first)
-- Reconciliation job, `needs_review` queue, exotic offline-buffer faults
-- Load, soak, and chaos tests
-- Notifications, audit log viewer, PDF invoices, metrics dashboards
-- Official OCPP JSON schema validation (basic validation first)
-- CGST/SGST vs IGST variations (one GST split with the odd-paisa rule)
-- Mock UPI and payment webhooks (the card charge is synchronous)
-- Real payment providers, real GST e-invoicing, OCPP 2.0.1, OCPI roaming
+GST defaults to 18% (`GST_RATE_PERCENT`) and is snapshotted onto the invoice. Tax is intra-state only: CGST and SGST, with an odd paisa placed on CGST. This is a simulation, not tax advice.
 
-Tax handling is a **simulation**, not tax advice. GST rate is configurable and defaults to 18%.
+### How a gateway event is delivered
 
-## Layout
+```mermaid
+flowchart LR
+    Write[State change and outbox row in one transaction] --> Order[Publish that session's events in sequence order]
+    Order --> Sign["HMAC: timestamp + '.' + raw body"]
+    Sign --> Receiver[Platform event receiver]
+    Receiver --> Seen{Same event_id?}
+    Seen -->|Yes| Duplicate[Acknowledge the duplicate]
+    Seen -->|No| Next{sequence is the next one?}
+    Next -->|No| Gap[409, gateway retries later]
+    Next -->|Yes| Apply[Advance the prepaid session]
+    Apply --> Job[Enqueue settlement on session.stopped]
+```
 
-| Path | Role |
-|---|---|
-| `gateway/` | Go OCPP gateway |
-| `platform/` | Rails + Sidekiq business platform |
-| `simulator/` | Constant-power virtual OCPP charger |
-| `mock-upi/` | Reserved. Card charges stay in the platform |
-| `contracts/` | Command and event schemas |
-| `docs/` | ADRs and design notes |
+Commands are idempotent on `command_id`. Events are idempotent on `event_id`, and a later sequence is refused until the missing earlier one arrives. Signatures use `X-Timestamp` and `X-Signature`, and must fall inside a five-minute window. The platform signs commands with `PLATFORM_SIGNING_SECRET`. The gateway signs events with `GATEWAY_SIGNING_SECRET`.
 
-## Money
+Schemas for both directions live in [`contracts/`](contracts/README.md).
 
-All money columns are integer **paise**. Never floats. `prepaid = invoice_total + refund` must hold for every settled session.
+## Why these technologies
+
+| Choice | Where it is used | Why |
+| --- | --- | --- |
+| Go 1.25 | Gateway and simulator | A charger is a long-lived socket. One goroutine owns each connection, so that charger's commands and meter updates stay in order. |
+| [ocpp-go](https://github.com/lorenzodonini/ocpp-go) 0.19 | OCPP 1.6J | The gateway and the simulator use a library for the protocol framing instead of a hand-rolled WebSocket dialect. |
+| chi, slog, pgx, sqlc | Gateway HTTP, logs, and SQL | The HTTP surface is small. SQL is written by hand and sqlc generates the Go. Structured logs come from the standard library. |
+| Rails 8.1 | Platform, admin, live board, receipt | Card charges, tariffs, invoices, and refunds are transactional records with validations and HTML pages. |
+| Sidekiq and Redis | `SettleSessionJob` | Settlement runs after `session.stopped`, and Sidekiq retries it. The web request that receives the event does not have to finish the invoice. |
+| Postgres, two databases | `ev_gateway` and `ev_platform` | Device state and money do not share a transaction. A gateway restart does not roll back an invoice. |
+| golang-migrate | Gateway schema | SQL migrations sit next to the Go service and run as their own Compose step before the gateway starts. |
+| Integer paise | Every money column | A rupee amount is `paise / 100` at display time. Prices are never stored as floats. |
+| In-process card charge | `POST /internal/v1/prepaid-sessions` | The POC needs an idempotent prepaid payment without a payment network. The platform keeps the last four digits. A number ending in `0002` is declined. Repeating the same idempotency key returns the same session. |
+| Docker Compose | Run, demo, and CI | A reviewer does not install Go, Ruby, Postgres, or Redis. `docker compose up` is the supported setup. |
+
+## Run a local demo
+
+```sh
+cp .env.example .env
+docker compose up -d --build
+```
+
+The first build downloads images and compiles the Go and Rails apps. Wait until the demo charger is connected:
+
+```sh
+curl --fail --retry 30 --retry-all-errors --retry-delay 2 --silent --show-error \
+  http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001
+```
+
+`connection_state` should be `connected`. Then open http://127.0.0.1:3000/admin/live and, in another terminal, charge the demo card:
+
+```sh
+./scripts/prepay-session.sh
+```
+
+The script posts a prepaid session for phone `9876543210` on `CHG-MUM-0001`, posts that same request again, and requires one session id. It waits until the virtual charger has delivered **240 Wh**, then waits until the receipt shows **1432** paise and a **0** refund. The live board updates while that session is charging. After it stops, the session page links to the receipt.
+
+The simulator is a constant **7.2 kW** charger. Each wall-clock second stands for **60** simulated seconds, so each tick is **120 Wh**. A 240 Wh charge is a few seconds.
+
+Stop the stack with `docker compose down`. Add `-v` to drop the databases too.
+
+### Other scenarios
+
+These are the checks CI runs against Compose. Each exits non-zero if the outcome is wrong.
+
+| Script | What it checks |
+| --- | --- |
+| [`scripts/payment-declined.sh`](scripts/payment-declined.sh) | A card ending in `0002` is stored as `declined`, with no energy limit. The same request returns that session. |
+| [`scripts/event-order.sh`](scripts/event-order.sh) | Sequence 2 is refused, sequence 1 is stored, a replay is a duplicate, then sequence 2 is accepted. |
+| [`scripts/demo-session.sh energy`](scripts/demo-session.sh) | A gateway limit of 240 Wh stops the charger. `session.stopped` reaches the platform. |
+| [`scripts/demo-session.sh duration`](scripts/demo-session.sh) | A 60-second limit stops the charger at 120 Wh. |
+| [`scripts/reconnect-session.sh`](scripts/reconnect-session.sh) | The socket drops mid-session, the charger boots again, and the energy limit still stops it. |
+| [`scripts/prepay-session.sh`](scripts/prepay-session.sh) | Card charge, replay, 240 Wh, invoice 1432, refund 0. |
+
+`demo-session.sh` talks to the gateway directly, so those sessions show up in the gateway database and as delivered events. They do not create a prepaid invoice. The prepaid script is the one that produces a receipt.
+
+## Code map
+
+| Path | Responsibility |
+| --- | --- |
+| [`gateway/`](gateway/README.md) | OCPP central system, session and command state, limit enforcement, transactional outbox. |
+| [`platform/`](platform/README.md) | Registry, tariff, card charge, prepaid sessions, settlement, admin, live board, receipt. |
+| [`simulator/`](simulator/README.md) | One virtual charger. `POST /control/reconnect` drops the socket and boots again. |
+| [`contracts/`](contracts/README.md) | Command and event JSON schemas shared by both sides. |
+| [`scripts/`](scripts) | The demo and the CI scenarios above. |
+| [`docs/adr/`](docs/adr/001-ownership-split.md) | Why device state and money are split. |
+
+The POC tenant id is `00000000-0000-0000-0000-000000000001`. Development Compose seeds that tenant, the Mumbai charger, the demo driver, and the flat tariff. `mock-upi/` is an empty reserved directory. Card charges stay inside the platform.
+
+## Limits of this slice
+
+The slice stops once the prepaid path, the signed event path, the admin, the live board, and the CI scenarios work.
+
+Still out of scope: a tenant UI and RBAC, time-of-use or idle fees, a charger control panel, a reconciliation queue, load tests, notifications, PDF invoices, official OCPP schema validation, IGST, and any real payment or GST network. OCPP 2.0.1 and OCPI roaming are out of scope too.
+
+## Development
+
+Work is delivered as [small pull requests](AGENTS.md). Each one says what changed, why, and how.
+
+CI builds the Compose stack and runs the scenario scripts, then runs `go test -race` for the gateway and simulator and RSpec plus RuboCop for the platform. Those jobs use the service images. They do not need a charger, a payment provider, or host-installed Go or Ruby.
