@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Charging receipt</title>
+  </head>
+  <body>
+    <h1>Charging receipt</h1>
+    <p>Session <%= @session.id %></p>
+    <p>Card ending <%= @session.card_last4 %></p>
+    <p>Energy <%= @invoice.energy_wh %> Wh</p>
+    <table>
+      <tr><th>Taxable</th><td data-amount="taxable"><%= @invoice.taxable_paise %></td></tr>
+      <tr><th>CGST</th><td data-amount="cgst"><%= @invoice.cgst_paise %></td></tr>
+      <tr><th>SGST</th><td data-amount="sgst"><%= @invoice.sgst_paise %></td></tr>
+      <tr><th>Total</th><td data-amount="total"><%= @invoice.total_paise %></td></tr>
+      <tr><th>Refund</th><td data-amount="refund"><%= @refund.amount_paise %></td></tr>
+    </table>
+    <p>GST <%= @invoice.gst_rate_percent %>% split within the state. Amounts are paise.</p>
+  </body>
+</html>
