@@ -1,0 +1,49 @@
+services:
+  gateway-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ev}
+      POSTGRES_DB: ${GATEWAY_DB:-ev_gateway}
+    ports:
+      - "${GATEWAY_DB_PORT:-5433}:5432"
+    volumes:
+      - gateway_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  platform-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ev}
+      POSTGRES_DB: ${PLATFORM_DB:-ev_platform}
+    ports:
+      - "${PLATFORM_DB_PORT:-5434}:5432"
+    volumes:
+      - platform_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  gateway_pg_data:
+  platform_pg_data:
+  redis_data:
