@@ -74,7 +74,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:-dev-insecure-secret-key-base-for-compose-only}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-dev-gateway-secret}
+      SKIP_DB_PREPARE: "1"
     depends_on:
+      platform:
+        condition: service_healthy
       platform-db:
         condition: service_healthy
       redis:
