@@ -46,7 +46,6 @@ module Admin
             .where(state: SHOWN_STATES)
             .select("DISTINCT ON (prepaid_sessions.charger_id) prepaid_sessions.*")
             .order(:charger_id, created_at: :desc)
-            .includes(:driver)
             .index_by(&:charger_id)
     end
 
