@@ -108,7 +108,7 @@ func (c *Controller) runSession(idTag string, stop <-chan core.Reason) {
 		c.reset()
 		return
 	}
-	confirmation, err := c.client.StartTransaction(
+	confirmation, err := c.current().StartTransaction(
 		c.cfg.ConnectorID,
 		idTag,
 		int(c.cfg.MeterStartWh),
@@ -153,7 +153,7 @@ func (c *Controller) sendMeterValue(meterWh int64, at time.Time) error {
 	c.mu.Lock()
 	transactionID := c.transactionID
 	c.mu.Unlock()
-	_, err := c.client.MeterValues(
+	_, err := c.current().MeterValues(
 		c.cfg.ConnectorID,
 		[]types.MeterValue{{
 			Timestamp: types.NewDateTime(at),
@@ -176,7 +176,7 @@ func (c *Controller) finishSession(meterWh int64, at time.Time, reason core.Reas
 	c.mu.Lock()
 	transactionID := c.transactionID
 	c.mu.Unlock()
-	if _, err := c.client.StopTransaction(
+	if _, err := c.current().StopTransaction(
 		int(meterWh),
 		types.NewDateTime(at),
 		transactionID,
@@ -202,8 +202,35 @@ func (c *Controller) reset() {
 	c.stop = nil
 }
 
+func (c *Controller) Use(client Client) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.client = client
+}
+
+func (c *Controller) ConnectorStatus() core.ChargePointStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch c.state {
+	case stateStarting:
+		return core.ChargePointStatusPreparing
+	case stateCharging:
+		return core.ChargePointStatusCharging
+	case stateStopping:
+		return core.ChargePointStatusFinishing
+	default:
+		return core.ChargePointStatusAvailable
+	}
+}
+
+func (c *Controller) current() Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.client
+}
+
 func (c *Controller) notify(status core.ChargePointStatus, at time.Time) bool {
-	_, err := c.client.StatusNotification(
+	_, err := c.current().StatusNotification(
 		c.cfg.ConnectorID,
 		core.NoError,
 		status,

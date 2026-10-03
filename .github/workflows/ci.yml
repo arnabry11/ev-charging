@@ -32,6 +32,7 @@ jobs:
           ./scripts/event-order.sh
           ./scripts/demo-session.sh energy
           ./scripts/demo-session.sh duration
+          ./scripts/reconnect-session.sh
           ./scripts/prepay-session.sh
       - if: failure()
         run: docker compose logs

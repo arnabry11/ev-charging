@@ -78,6 +78,77 @@ func TestRemoteStartRejectsBusyConnector(t *testing.T) {
 	<-client.stops
 }
 
+func TestUseSendsLaterReadingsThroughTheReplacementClient(t *testing.T) {
+	t.Parallel()
+
+	first := newFakeClient()
+	second := newFakeClient()
+	controller := New(first, Config{
+		PowerW:                  7_200,
+		MeterStartWh:            100_000,
+		TickInterval:            time.Millisecond,
+		SimulatedSecondsPerTick: 60,
+		Logger:                  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	connectorID := 1
+	if got := controller.RemoteStart(&core.RemoteStartTransactionRequest{
+		ConnectorId: &connectorID,
+		IdTag:       "ID-1",
+	}); got != types.RemoteStartStopStatusAccepted {
+		t.Fatalf("remote start = %s", got)
+	}
+	select {
+	case <-first.meters:
+	case <-time.After(time.Second):
+		t.Fatal("first client received no meter value")
+	}
+
+	controller.Use(second)
+	select {
+	case <-second.meters:
+	case <-time.After(time.Second):
+		t.Fatal("replacement client received no meter value")
+	}
+	if got := controller.RemoteStop(&core.RemoteStopTransactionRequest{TransactionId: 42}); got != types.RemoteStartStopStatusAccepted {
+		t.Fatalf("remote stop = %s", got)
+	}
+	<-second.stops
+}
+
+func TestConnectorStatusFollowsTheSession(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeClient()
+	controller := New(client, Config{
+		TickInterval: time.Hour,
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if got := controller.ConnectorStatus(); got != core.ChargePointStatusAvailable {
+		t.Fatalf("idle status = %s", got)
+	}
+	if got := controller.RemoteStart(&core.RemoteStartTransactionRequest{IdTag: "ID-1"}); got != types.RemoteStartStopStatusAccepted {
+		t.Fatalf("remote start = %s", got)
+	}
+	<-client.started
+	waitForStatus(t, controller, core.ChargePointStatusCharging)
+	if got := controller.RemoteStop(&core.RemoteStopTransactionRequest{TransactionId: 42}); got != types.RemoteStartStopStatusAccepted {
+		t.Fatalf("remote stop = %s", got)
+	}
+	<-client.stops
+	waitForStatus(t, controller, core.ChargePointStatusAvailable)
+}
+
+func waitForStatus(t *testing.T, controller *Controller, want core.ChargePointStatus) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for controller.ConnectorStatus() != want {
+		if time.Now().After(deadline) {
+			t.Fatalf("status = %s, want %s", controller.ConnectorStatus(), want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestNextMeterWhCarriesFractionalWattHours(t *testing.T) {
 	t.Parallel()
 
