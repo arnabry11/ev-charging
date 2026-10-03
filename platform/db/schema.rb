@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_105337) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_124000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -97,6 +97,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_105337) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["session_ref", "sequence"], name: "index_processed_gateway_events_on_session_ref_and_sequence", unique: true
+    t.index ["tenant_id", "event_type", "created_at"], name: "index_processed_gateway_events_on_tenant_type_received"
   end
 
   create_table "refunds", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
