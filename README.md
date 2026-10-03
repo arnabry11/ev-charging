@@ -1,6 +1,6 @@
 # EV Charging Platform (POC)
 
-A portfolio project for the hard core of an EV charging stack: a Go OCPP 1.6J gateway that talks to chargers, and a Rails + Sidekiq platform that owns prepaid sessions, refunds, and GST invoices. Everything runs on a laptop with a charger simulator and a mock UPI provider. No real hardware, no real payments, no real tax authority.
+A portfolio project for the hard core of an EV charging stack: a Go OCPP 1.6J gateway that talks to chargers, and a Rails + Sidekiq platform that owns prepaid sessions, refunds, and GST invoices. Everything runs on a laptop with a charger simulator and an in-process card charge. No real hardware, no real payments, no real tax authority.
 
 This repository is a **thin vertical slice**. The goal is to prove the risky parts (OCPP sessions, the signed Go-to-Rails contract, and idempotent money), then stop and decide whether to continue.
 
@@ -34,13 +34,18 @@ StartTransaction, MeterValues, and StopTransaction flow, then prints the
 authoritative start/stop meter readings from the gateway database and checks that
 `session.stopped` was delivered to the platform.
 
-Charge a card and let that prepaid amount stop the charger:
+Charge a card and let that prepaid amount stop the charger. The same request is sent twice and must come back as one session:
 
 ```bash
 ./scripts/prepay-session.sh
 ```
 
-Later, `docker compose --profile demo up` will run a full prepaid session on fake data.
+The other CI scenarios are:
+
+```bash
+./scripts/payment-declined.sh
+./scripts/event-order.sh
+```
 
 ## Ownership rule
 
@@ -51,7 +56,7 @@ The gateway never calculates prices. It only enforces numeric limits (`max_energ
 ## Architecture
 
 ```
-Driver / CLI ──► Platform (Rails + Sidekiq) ──► Mock UPI
+Driver / CLI ──► Platform (Rails + Sidekiq)
                       │
                       │ signed HTTP commands (command_id)
                       ▼
@@ -69,8 +74,8 @@ Two Postgres databases stay separate. The services talk only through a signed HT
 - OCPP 1.6J session flow: boot, heartbeat, start, meter values, stop, remote start/stop
 - Limit enforcement on the gateway
 - Outbox events with retries, per-session sequence numbers, and HMAC signatures
-- Prepaid mock UPI, webhook idempotency, GST-snapshotted invoice, refund of unused prepaid
-- One-command demo and a small set of E2E scenarios in CI
+- Prepaid card charge, idempotent replay, GST-snapshotted invoice, refund of unused prepaid
+- CI scenarios: declined card, duplicate charge, energy and duration limits, duplicated and reordered gateway events
 
 ## What is not built (yet)
 
@@ -82,6 +87,7 @@ Two Postgres databases stay separate. The services talk only through a signed HT
 - Notifications, audit log viewer, PDF invoices, metrics dashboards
 - Official OCPP JSON schema validation (basic validation first)
 - CGST/SGST vs IGST variations (one GST split with the odd-paisa rule)
+- Mock UPI and payment webhooks (the card charge is synchronous)
 - Real payment providers, real GST e-invoicing, OCPP 2.0.1, OCPI roaming
 
 Tax handling is a **simulation**, not tax advice. GST rate is configurable and defaults to 18%.
@@ -93,7 +99,7 @@ Tax handling is a **simulation**, not tax advice. GST rate is configurable and d
 | `gateway/` | Go OCPP gateway |
 | `platform/` | Rails + Sidekiq business platform |
 | `simulator/` | Constant-power virtual OCPP charger |
-| `mock-upi/` | Mock payment provider (later) |
+| `mock-upi/` | Reserved. Card charges stay in the platform |
 | `contracts/` | Command and event schemas |
 | `docs/` | ADRs and design notes |
 

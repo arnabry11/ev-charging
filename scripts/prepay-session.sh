@@ -5,8 +5,17 @@ idempotency_key="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 body="$(printf '{"idempotency_key":"%s","phone":"9876543210","ocpp_id":"CHG-MUM-0001","prepaid_paise":1432,"card":{"number":"4242424242424242","expiry_month":12,"expiry_year":2030,"cvv":"123"}}' "$idempotency_key")"
 
 echo "Charging a card for a 240 Wh prepaid session"
-created="$(curl --fail --silent --show-error -X POST "http://127.0.0.1:${PLATFORM_HTTP_PORT:-3000}/internal/v1/prepaid-sessions" -H 'Content-Type: application/json' --data "$body")"
-session_id="$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"]["id"])')"
+created="$(curl --fail --silent --show-error -X POST "http://127.0.0.1:${PLATFORM_HTTP_PORT:-3000}/internal/v1/prepaid-sessions" -H 'Content-Type: application/json' --data-binary "$body")"
+replay="$(curl --fail --silent --show-error -X POST "http://127.0.0.1:${PLATFORM_HTTP_PORT:-3000}/internal/v1/prepaid-sessions" -H 'Content-Type: application/json' --data-binary "$body")"
+session_id="$(python3 - "$created" "$replay" <<'PY'
+import json, sys
+first = json.loads(sys.argv[1])["session"]["id"]
+second = json.loads(sys.argv[2])["session"]["id"]
+if first != second:
+    raise SystemExit(f"replay created a second session: {second}")
+print(first)
+PY
+)"
 echo "Session $session_id"
 
 result=""
