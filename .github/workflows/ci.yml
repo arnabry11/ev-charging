@@ -15,6 +15,17 @@ jobs:
         run: curl --fail --retry 20 --retry-all-errors --retry-delay 2 --silent --show-error http://127.0.0.1:8080/health
       - name: Check platform health
         run: curl --fail --retry 30 --retry-all-errors --retry-delay 2 --silent --show-error http://127.0.0.1:3000/health
+      - name: Wait for demo charger
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/internal/v1/chargers/CHG-MUM-0001 | grep -q '"connection_state":"connected"'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "charger did not connect"
+          docker compose logs gateway simulator
+          exit 1
       - if: failure()
         run: docker compose logs
       - if: always()
