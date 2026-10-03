@@ -35,8 +35,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Check generated SQL code
+        run: |
+          docker run --rm -v "$PWD/gateway:/src" -w /src sqlc/sqlc:1.30.0 generate
+          git diff --exit-code -- gateway/internal/store
+          test -z "$(git status --porcelain --untracked-files=all -- gateway/internal/store)"
       - name: Test gateway image
         run: docker build --target build -t ev-gateway-test ./gateway
+      - run: cp .env.example .env
+      - name: Start and migrate gateway database
+        run: |
+          docker compose up -d --wait gateway-db
+          docker compose run --rm gateway-migrate
+      - name: Run gateway database integration tests
+        run: >-
+          docker run --rm
+          --network ev-charging_default
+          -e TEST_DATABASE_URL=postgres://ev:ev@gateway-db:5432/ev_gateway?sslmode=disable
+          ev-gateway-test
+          go test -race -p 1 ./internal/store ./internal/session
+      - if: always()
+        run: docker compose down -v
 
   platform-test:
     runs-on: ubuntu-latest

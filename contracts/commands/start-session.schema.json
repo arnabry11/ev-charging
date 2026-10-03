@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/arnabry11/ev-charging/contracts/commands/start-session.schema.json",
+  "title": "Start session command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "command_id",
+    "session_ref",
+    "charger_id",
+    "connector_id",
+    "id_tag",
+    "limits",
+    "expires_at"
+  ],
+  "properties": {
+    "command_id": { "type": "string", "format": "uuid" },
+    "session_ref": { "type": "string", "format": "uuid" },
+    "charger_id": { "type": "string", "minLength": 1 },
+    "connector_id": { "type": "integer", "minimum": 1 },
+    "id_tag": { "type": "string", "minLength": 1, "maxLength": 20 },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_energy_wh", "max_duration_s"],
+      "properties": {
+        "max_energy_wh": { "type": "integer", "minimum": 1 },
+        "max_duration_s": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "expires_at": { "type": "string", "format": "date-time" }
+  }
+}
