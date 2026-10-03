@@ -25,7 +25,11 @@
         <header>
           <div>
             <h2><%= row[:charger].name %></h2>
-            <p class="meta"><%= charger_meta(row) %></p>
+            <p class="meta">
+              <% charger_meta(row).each do |item| %>
+                <span class="<%= item[:css] %>"><%= item[:text] %></span>
+              <% end %>
+            </p>
           </div>
           <%= link_to_if session, state[:label], (admin_session_path(session) if session), class: "state state-#{state[:tone]}" do %>
             <span class="state state-<%= state[:tone] %>"><%= state[:label] %></span>
