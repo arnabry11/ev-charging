@@ -3,35 +3,31 @@ module ApplicationHelper
     return "—" if paise.nil?
 
     whole, fraction = paise.abs.divmod(100)
-    format("%s₹%d.%02d", paise.negative? ? "-" : "", whole, fraction)
+    format("%s₹%s.%02d", paise.negative? ? "-" : "", group_indian(whole), fraction)
+  end
+
+  # Energy is displayed to the nearest 10 Wh. It is never used to price anything.
+  def kwh_value(wh)
+    return "—" if wh.nil?
+
+    hundredths = (wh.abs + 5) / 10
+    format("%s%d.%02d", wh.negative? ? "-" : "", hundredths / 100, hundredths % 100)
   end
 
   def wh_to_kwh(wh)
     return "—" if wh.nil?
 
-    whole, fraction = wh.abs.divmod(1_000)
-    format("%s%d.%03d kWh", wh.negative? ? "-" : "", whole, fraction)
-  end
-
-  def chart_coordinates(points, width: 640, height: 180, pad: 28)
-    return "" if points.blank?
-
-    times = points.map { |point| point[:at].to_f }
-    min_t, max_t = times.minmax
-    max_value = points.map { |point| point[:value].to_f }.max
-    max_value = 1.0 if max_value <= 0
-    span = max_t - min_t
-    span = 1.0 if span.zero?
-    inner_width = width - (pad * 2)
-    inner_height = height - (pad * 2)
-    points.map { |point| coordinate(point, min_t, span, max_value, pad, inner_width, inner_height) }.join(" ")
+    "#{kwh_value(wh)} kWh"
   end
 
   private
 
-  def coordinate(point, min_t, span, max_value, pad, inner_width, inner_height)
-    x = pad + ((point[:at].to_f - min_t) / span * inner_width)
-    y = pad + inner_height - (point[:value].to_f / max_value * inner_height)
-    format("%.1f,%.1f", x, y)
+  # 1234567 -> "12,34,567": the last three digits, then pairs.
+  def group_indian(number)
+    digits = number.to_s
+    return digits if digits.length <= 3
+
+    head = digits[0...-3]
+    "#{head.reverse.scan(/\d{1,2}/).join(",").reverse},#{digits[-3..]}"
   end
 end
