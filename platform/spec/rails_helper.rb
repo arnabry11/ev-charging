@@ -25,6 +25,9 @@ require 'rspec/rails'
 #
 # Rails.root.glob('spec/support/**/*.rb').sort_by(&:to_s).each { |f| require f }
 
+require "sidekiq/testing"
+Sidekiq::Testing.fake!
+
 # Ensures that the test database schema matches the current schema file.
 # If there are pending migrations it will invoke `db:test:prepare` to
 # recreate the test database by loading the schema.
@@ -44,6 +47,7 @@ RSpec.configure do |config|
   # examples within a transaction, remove the following line or assign false
   # instead of true.
   config.use_transactional_fixtures = true
+  config.before { Sidekiq::Worker.clear_all }
 
   # You can uncomment this line to turn off ActiveRecord support entirely.
   # config.use_active_record = false

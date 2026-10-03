@@ -58,6 +58,7 @@ module PrepaidSessions
         last_energy_wh: payload["meter_stop_wh"],
         stopped_at: payload["stopped_at"]
       )
+      SettleSessionJob.perform_async(session.id)
     end
   end
 end

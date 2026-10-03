@@ -4,6 +4,8 @@ class PrepaidSession < ApplicationRecord
   belongs_to :tenant
   belongs_to :driver
   belongs_to :charger
+  has_one :invoice, dependent: :restrict_with_exception
+  has_one :refund, dependent: :restrict_with_exception
 
   validates :idempotency_key, presence: true
   validates :state, inclusion: { in: STATES }

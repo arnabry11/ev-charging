@@ -72,5 +72,7 @@ RSpec.describe PrepaidSessions::ApplyEvent, type: :model do
 
     expect(session.reload.state).to eq("stopped")
     expect(session.meter_stop_wh).to eq(100_240)
+    expect(SettleSessionJob.jobs.size).to eq(1)
+    expect(SettleSessionJob.jobs.first["args"]).to eq([ session.id ])
   end
 end
